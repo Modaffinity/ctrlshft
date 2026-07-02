@@ -58,6 +58,10 @@ After updating, tell the user: "Updated [skill-name] skill: [one-sentence summar
 Read the relevant SKILL.md in full, find the most suitable place to integrate the information in a DRY way, and edit it inline. Only fall back to `## Lessons Learned` if no better location exists. Confirm with: "Saved to [skill-name] skill: [one-sentence summary]."
 </skill-self-learning>
 
+<graphify-usage>
+When querying a graphify knowledge graph: never shell a raw `graphify query "<free text>"` — its matcher is literal case-folded substring (no stemming/synonyms), so vague queries mis-route. Invoke the `/graphify` skill (it runs the REQUIRED vocab-expansion) or expand tokens against the graph's own vocabulary first. For a question about ONE repo, query that repo's graph (`--graph <repo>/graphify-out/graph.json`), not a merged/global graph (there is no repo-filter flag). Never hand-edit the vendor graphify `SKILL.md` — it is overwritten on `graphify install`.
+</graphify-usage>
+
 <thinking>
 - You must engage in exhaustive, deep-level reasoning. Think deeply about edge cases, data integrity, and architectural consequences before writing code and after refactorings.
 - Self-check before committing: "Would a senior engineer say this is overcomplicated?" If yes, simplify. "Does every changed line trace directly to the user's request?" If not, revert the extras.
