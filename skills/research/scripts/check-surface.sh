@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Verify a context/research/ surface against the contract in
-# context/research/surface-contract/. Implements invariants I1-I8 + B1-B4.
+# context/research/surface-contract/. Implements invariants I0-I9 + B1-B4.
 #
 #   usage: check-surface.sh <path/to/context/research>
 #   exit:  0 = all invariants hold, 1 = at least one failure
