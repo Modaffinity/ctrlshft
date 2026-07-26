@@ -454,8 +454,20 @@ _load_context() {
     [[ -f ~/dotfiles/bin/detect-client.sh ]] \
         && source ~/dotfiles/bin/detect-client.sh > /dev/null 2>&1
 }
-cd() { builtin cd "$@" && _load_context; }
-_load_context
+# cd must NEVER fail because of context detection.
+#  - `builtin cd ... && _load_context` returned _load_context's status, so a
+#    failing/undefined _load_context made `cd` report failure even though the
+#    directory changed — breaking `cd x && y` chains and any `set -e` script.
+#  - Non-interactive shells (Claude Code's shell snapshot, some CI) capture the
+#    cd wrapper but NOT this underscore-prefixed function, so the call resolved
+#    to `command not found: _load_context` on every cd.
+# Guard the call and always return cd's own status.
+cd() {
+    builtin cd "$@" || return
+    typeset -f _load_context >/dev/null 2>&1 && _load_context
+    return 0
+}
+typeset -f _load_context >/dev/null 2>&1 && _load_context
 
 ## END ctrlshft
 SHELLEOF
