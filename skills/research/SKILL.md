@@ -50,7 +50,7 @@ The `dive` tier is a four-step gate. Never compress it.
 4. Brief each subagent with `references/subagent-brief.md`. Boundaries are the dedup layer: one path, touch nothing else, return a proposed index row.
 5. Checkpoint every return immediately under `context/research/<topic>/.wip/`: `brief.md`, `returns/<agent>.md`, `sources.jsonl`, and `run-state.md`. A fresh session resumes from these files before doing new work.
 6. Synthesize once from the saved returns, then verify citations by refetching anchor quotes. Delete contradicted claims; mark unresolved support `[U]`.
-7. File to the body template, regenerate the index with `bash scripts/build-index.sh context/research`, run `bash scripts/check-surface.sh context/research`, then report done. Both scripts ship with this skill; run them from the skill directory or by absolute path.
+7. File to the body template, **delete the topic's `.wip/` directory**, regenerate the index with `bash scripts/build-index.sh context/research`, run `bash scripts/check-surface.sh context/research`, then report done. Both scripts ship with this skill; run them from the skill directory or by absolute path. Invariant I9 fails if any `.wip/` survives.
 
 Backward edge: if citations are incomplete or contradictory, return to step 3 with a smaller question.
 
@@ -69,6 +69,7 @@ Before spawning, state the planned tool-call budget. Stop if the plan would exce
 - Preserve root `research.md`; the durable surface is `context/research/`.
 - Keep one topic in one document when the index already has coverage.
 - Write scaffolding only when needed: topic directory, `.wip/`, and the final document path.
+- `.wip/` is scratch, never corpus. It holds raw pre-verification returns, so it must not outlive the run: delete it once the synthesis is filed. Never commit it. If a run dies mid-flight, `.wip/` is what the next session resumes from — deleting it is the *last* step, not an early one.
 - Pointer writing: every final answer names the filed document and the index row used or updated.
 - Scan outputs may be filed only as scan docs and must not reach a conclusion.
 - Check and dive outputs must use `references/body-template.md`.

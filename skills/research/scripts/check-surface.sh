@@ -18,6 +18,11 @@
 #      updated is a past-or-today ISO date, summary <= 200 chars
 #   I7 row Summary       == frontmatter summary, verbatim (the index is a projection)
 #   I8 INDEX.md <= 200 lines and <= 25KB (the Claude Code MEMORY.md ceiling)
+#   I9 no `.wip/` run scratch survives — raw subagent returns are pre-verification
+#      by construction, so leaving them in the surface puts unverified (and
+#      sometimes deliberately discarded) claims where index-first reading finds
+#      them. Dot-directories are invisible to every other glob here, so nothing
+#      else can catch this.
 #
 # Body contract (02-document-body.md):
 #   B1 the H1 falls within `head -25` — the preview an agent actually reads
@@ -172,6 +177,19 @@ done
 if printf '%s\n' "$ROWS" | grep -q '_(none yet' && ls -d "$R"/*/ >/dev/null 2>&1; then
   bad "I1 placeholder row still present although topics exist"
 fi
+
+# ---- I9: run scratch must not outlive the run -------------------------------
+# `.wip/` is a checkpoint for session-death recovery, not corpus content. It holds
+# raw subagent returns, which are by definition not yet verified — step 6 is where
+# citations get checked and contradicted claims deleted. Anything still in `.wip/`
+# either never passed that pass or was thrown away by it.
+echo "I9  no run scratch left behind"
+while IFS= read -r d; do
+  [ -n "$d" ] || continue
+  bad "I9 ${d#"$R"/} survived the run — delete .wip/ on completion (it is pre-verification scratch, not corpus)"
+done <<EOF
+$(find "$R" -type d -name '.wip' 2>/dev/null | sort)
+EOF
 
 echo "---"
 [ "$fail" -eq 0 ] && echo "PASS  $R" || echo "FAIL  $R"
