@@ -26,7 +26,7 @@ Skills are auto-discovered from `skills/*/SKILL.md`. The agent reads each skill'
 | `npm-security-audit` | "is this package safe", "audit this project" | Layered security audit before npm install |
 | `prd-to-issues` | "break this PRD into issues", "create a kanban" | PRD → vertical slices → GitHub issues (AFK/HITL labeled) |
 | `pr-preflight` | "/preflight", "pre-PR audit" | Exhaustive pre-PR audit that front-runs review tools |
-| `research` | "research", "investigate before building", "flush unknowns" | Cache exploration into a research document |
+| `research` | "research", "investigate before building", "flush unknowns" | Tiered research (`scan`/`check`/`dive`), filed into `context/research/`; paid tiers ask first. **Deploy-managed from CortexOS HQ — do not hand-edit here** (see note below) |
 | `review-pr-copilot` | "address review comments", "fix PR comments" | Triage Copilot review comments, fix, resolve threads |
 | `sanity-best-practices` | Working with Sanity CMS content, schemas, GROQ | Sanity development patterns and framework integrations |
 | `session-close` | "/check", before ending a session | Pre-flight checklist: quality gates before session end |
@@ -36,6 +36,22 @@ Skills are auto-discovered from `skills/*/SKILL.md`. The agent reads each skill'
 | `systematic-debugging` | Any bug, test failure, unexpected behavior | Root cause investigation before proposing fixes |
 | `tdd` | "write tests first", "TDD", "red-green refactor" | Red-green-refactor workflow (backend only) |
 | `write-a-prd` | "write a PRD", "plan a feature" | Product Requirements Document from a rough idea |
+
+### One exception to "dotfiles is the source of truth": `research`
+
+`skills/research/` is the **only** skill here that is deploy-managed from outside this repo. Its source
+of truth is the CortexOS HQ skills tree (`~/cortexos-pods/hq/skills/research/`), and it reaches this
+directory — and the container runtime the CortexOS agents load — through one command run from the
+control-plane repo:
+
+```bash
+bash scripts/check_skill_sync.sh --fix research
+```
+
+**Edit the HQ source, then run that. Never hand-edit `skills/research/` here** — a hand edit is
+silently overwritten on the next converge, and hand-maintained copies are what let four agents run a
+stale version of this skill for ~3 hours (CortexOS BT-033). `~/dotfiles/commands/research.md` is the
+one piece the converge does **not** manage; update it by hand if the skill's tier flags change.
 
 ## The Planning Pipeline
 

@@ -260,7 +260,7 @@ The benefit: ⚡ skills act as passive guardrails. You don't remember to say "us
 | `architect` ⚡            | Plan implementation — vertical slices, dependency graphs, acceptance criteria.                          |
 | `skill-scaffolder`        | Scaffold new agent skills from production-tested patterns. Interview → architecture → directory.        |
 | `explore` ⚡              | Decompose a topic, spawn parallel sub-agents, synthesize a summary.                                     |
-| `research` ⚡             | Cache expensive exploration into `research.md`. Staleness checks, lifecycle management.                 |
+| `research` ⚡             | Tiered research — `scan` / `check` / `dive`. Files findings into `context/research/`. Paid tiers ask first. |
 | `codebase-audit` ⚡       | Ruthless code audit — real problems only, grouped by severity. No manufactured issues.                  |
 | `improve-architecture` ⚡ | Find shallow-module clusters, spawn parallel design agents, file a GitHub RFC.                          |
 | `tdd`                     | Red-green refactor. Failing test → implement → refactor. Backend only.                                  |

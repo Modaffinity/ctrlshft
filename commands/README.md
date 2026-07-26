@@ -25,6 +25,7 @@ User types /work → commands/work.md → loads skills/do-work/SKILL.md → exec
 | `/explore` | `explore` | Deep codebase exploration via parallel subagents |
 | `/plan` | `architect` | Implementation plan with vertical slices |
 | `/preflight` | `pr-preflight` | Exhaustive pre-PR audit that front-runs review tools |
+| `/research` | `research` | Tiered research — scan / check / dive; paid tiers ask first |
 | `/review` | `code-review` | Focused review of staged or recent changes |
 | `/ship` | `atomic-commits` | Ship work to remote with PR creation |
 | `/stress-test` | `stress-test` | Adversarial rule compliance stress test |

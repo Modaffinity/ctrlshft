@@ -1,88 +1,97 @@
 ---
 name: research
-description: "Cache expensive exploration into a research document before building. Use when asked to 'research', 'investigate before building', 'gather context', 'flush unknowns', or before a large feature where unknowns need flushing."
+description: "Research a topic at a chosen depth: scan to enumerate candidates, check to resolve one question with verified sources, or dive to prepare paid deep research on a selected candidate. Use for research, scan what's out there, look into, investigate before building, gather context, flush unknowns, or when findings must persist in context/research. Paid tiers always ask first. Not for metric/experiment optimization cycles — that is autoresearch."
 ---
 
 # Research
 
 Output "Read Research skill." to chat to acknowledge you read this file.
 
-Cache expensive exploration into a persistent research.md so implementation conversations can start with full context instead of re-exploring.
+Use this as the single research entry point. Infer the tier from the request, announce it, and let the operator override with `--scan`, `--check`, `--dive`, or `--engine`.
 
-## When to Use
+## Tier Routing
 
-- Before a large feature where architecture, dependencies, or API choices are unclear
-- When multiple conversations will work on the same area
-- When exploration would consume >20% of context and you still need room to implement
-- When the user says "research this first" or "investigate before building"
+| Tier | Use when | Output | Never do |
+|---|---|---|---|
+| `scan` | The user needs the landscape, candidates, URLs, or contradictions. | Ranked shortlist, source links, contradiction flags, open questions. | Do not conclude or file a final answer. |
+| `check` | One question can be resolved with bounded sources. | One answer with citations, anchor quotes, verification marks, and confidence. | Do not spawn by default for one sub-question. |
+| `dive` | A selected candidate needs paid deep research. | Scan shortlist → operator selects → cost estimate → approval → deep-research report filed to `context/research/`. | Do not spend or call a metered engine before the scan→select checkpoint and operator approval. |
 
-## Process
+Default inference: ordinary "research/look into" starts as `check` if it is a single question, `scan` if the request asks for options, and `dive` only when the user explicitly asks for deep paid research. State the inferred tier before acting: "I am treating this as `check`; say `--scan` or `--dive` to change it."
 
-### 1. Check for Existing Research
+## Engine Override
 
-If research.md already exists in the project root:
+| `--engine` | Tiers | Cost posture |
+|---|---|---|
+| `claude` | T0-T2 | $0 subscription path; announce planned search/tool budget. |
+| `perplexity` | T1-T2 grounded lookup; T3 alternate only by request | Metered. Announce estimate before spending and actual after. Missing key is a config error. |
+| `gemini` | T3 dive | Existing `deep-research` gate. Estimate before approval; do not bypass its redaction/cost checks. |
 
-- Read it fully
-- Check the `Generated` date in the header
-- If <7 days old and topic matches: use it as-is, skip to handoff
-- If >7 days old or topic doesn't match: re-validate by spot-checking 2-3 key claims, then update or regenerate
+No engine auto-spends. If a metered key is missing, stop with a config error; never silently fall back to a different paid engine.
 
-### 2. Decompose
+## T3 Dive Protocol
 
-Break the research topic into 3-6 distinct areas of concern. Each area should be explorable independently.
+The `dive` tier is a four-step gate. Never compress it.
 
-### 3. Parallel Exploration
+1. **Scan first (free).** Run T0-T2 recon to produce a ranked candidate shortlist. File nothing yet.
+2. **Select.** Present candidates with one-line rationale each. Stop and wait for operator selection. Do not start the paid run until the selection is explicit.
+3. **Estimate.** Read `references/engines.md`. Run `--dry-run` on the selected brief. Announce: engine, model, estimated cost, depth, stop condition. Do not spend before announcement.
+4. **Dive.** Only after operator approval: run the deep-research adapter at `--depth quick` (default); `standard` or `deep` on explicit request. Pass the full brief packet. On completion: write `RUN_META.md`, run redaction audit (`grep -rE 'AIza[A-Za-z0-9_-]{35,}|GEMINI_DEEP_RESEARCH_API_KEY='` → must be 0 matches), file the synthesis to `context/research/<topic>/`, add an INDEX row, run `scripts/check-surface.sh`.
 
-Spawn a dedicated sub-agent for each area using the `explore` verb (per the explore skill). Each sub-agent should have a narrow, specific focus.
+**T3 alternate (Perplexity `sonar-deep-research`):** same gate, same four steps. Requires `PERPLEXITY_API_KEY` in environment (config error if missing). Anchor-quote verification is **mandatory** on its output — every load-bearing claim must carry a `≤150`-char verbatim quote and pass a re-fetch check. Never optional.
 
-### 4. Synthesize
+**Engines reference:** load `references/engines.md` for request shape, cost ranges, and key-missing behavior before any paid run.
 
-Combine all sub-agent findings into research.md in the project root with this structure:
+## Seven-Step Checklist
 
-```markdown
-# Research: [Topic]
+1. Route before researching: read `context/research/INDEX.md`. If an existing row covers the topic, revise that document in place and do not create a duplicate.
+2. Interview before the run. Ask the 3 unskippable questions in `references/interview.md`; add at most 3 more. Include pre-filled recommended answers.
+3. Pick tier and fan-out. One sub-question stays inline. 2-4 independent subtopics may use subagents. More than 4 means split the request or ask to raise the cap.
+4. Brief each subagent with `references/subagent-brief.md`. Boundaries are the dedup layer: one path, touch nothing else, return a proposed index row.
+5. Checkpoint every return immediately under `context/research/<topic>/.wip/`: `brief.md`, `returns/<agent>.md`, `sources.jsonl`, and `run-state.md`. A fresh session resumes from these files before doing new work.
+6. Synthesize once from the saved returns, then verify citations by refetching anchor quotes. Delete contradicted claims; mark unresolved support `[U]`.
+7. File to the body template, regenerate the index with `bash scripts/build-index.sh context/research`, run `bash scripts/check-surface.sh context/research`, then report done. Both scripts ship with this skill; run them from the skill directory or by absolute path.
 
-Generated: [date]
-Topic: [one-line summary]
+Backward edge: if citations are incomplete or contradictory, return to step 3 with a smaller question.
 
-## Summary
+## Delegation Defaults
 
-[2-3 paragraph executive summary of findings]
+| Shape | Default | Rationale |
+|---|---|---|
+| One question, 3-10 fetches | Inline; delegation: none. | Subagents cost coordination and tokens without adding depth. |
+| 2-4 independent subtopics | 2-4 subagents, about 15 tool calls each. | Boundaries stay understandable and fit the shared session search cap. |
+| More than 4 subtopics | Split the request. | Fan-out multiplies cost and citation work; it is not a substitute for scope control. |
 
-## Architecture
+Before spawning, state the planned tool-call budget. Stop if the plan would exceed the configured session allowance.
 
-[Relevant code paths, data flow, existing patterns]
+## Filing Rules
 
-## Constraints
+- Preserve root `research.md`; the durable surface is `context/research/`.
+- Keep one topic in one document when the index already has coverage.
+- Write scaffolding only when needed: topic directory, `.wip/`, and the final document path.
+- Pointer writing: every final answer names the filed document and the index row used or updated.
+- Scan outputs may be filed only as scan docs and must not reach a conclusion.
+- Check and dive outputs must use `references/body-template.md`.
+- Do not complete if `scripts/check-surface.sh` exits non-zero.
 
-[Technical limitations, API quirks, performance bounds, compatibility issues]
+## Reference Loading
 
-## Dependencies
+Load only the reference needed for the current step:
 
-[External services, libraries, APIs involved and their current state]
+- `references/interview.md` before asking questions.
+- `references/subagent-brief.md` before delegation.
+- `references/body-template.md` before filing.
+- `references/engines.md` before any `--engine perplexity` or `--engine gemini` path.
+- `references/domain/*.md` for source priorities.
+- `references/high-stakes.md` when the user requests high-stakes or policy-grade work.
+- `references/prompt-patterns.md` when preparing a prompt packet.
 
-## Open Questions
+## Eval Anchors
 
-[Unresolved decisions that need human input]
-
-## Recommendations
-
-[Concrete next steps based on findings]
-```
-
-### 5. Handoff
-
-After research is complete, offer the user three paths:
-
-1. /write-a-prd — capture findings as a formal PRD
-2. /do-work — start implementing with research.md as context
-3. Continue exploring — spawn additional sub-agents for open questions
-
-## Lifecycle Management
-
-- research.md lives in the project root
-- When passing to a new conversation, always include research.md
-- If a `working/*-plan.md` exists, the pickup command should include both: `@research.md @working/<plan-name>.md — pick up on remaining slices. Start with Slice [N].`
-- If research.md is >7 days old, re-validate before relying on it
-- If the codebase has changed significantly (major refactor, new dependencies), regenerate
-- Delete research.md after the feature ships — it's a working document, not permanent docs
+- Shallow lookup: use `check`, delegation: none, and cite sources or say unverifiable.
+- Covered topic: route through `INDEX.md`; revise in place; no duplicate document.
+- Unanswerable: say "nothing credible found" or "not enough credible evidence"; do not pad.
+- Forced `--scan`: label scan-only, list open questions/next checks, and never conclude.
+- `dive`: stop for approval with estimate and engine before spending.
+- Read-side reuse: in a fresh session, use `INDEX.md` before new research.
+- Produced surface: run `scripts/check-surface.sh`; `PASS` or stop.
