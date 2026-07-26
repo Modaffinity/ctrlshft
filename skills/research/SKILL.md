@@ -45,7 +45,7 @@ The `dive` tier is a four-step gate. Never compress it.
 ## Seven-Step Checklist
 
 1. Route before researching: read `context/research/INDEX.md`. If an existing row covers the topic, revise that document in place and do not create a duplicate.
-2. Interview before the run. Ask the 3 unskippable questions in `references/interview.md`; add at most 3 more. Include pre-filled recommended answers.
+2. Interview before the run — **one batch, before any searching**. Ask the 3 unskippable questions in `references/interview.md`; add at most 3 more. Include pre-filled recommended answers. **Skip only when the request already answers all three** — a written brief, a task packet or a detailed prompt often does — and when you skip, **say so in one line naming what answered them**. A silent skip and a considered skip look identical to the operator, which is why the declaration is required, not optional. A dispatched worker running from a brief skips by default: a missing brief field is a stop condition, not a question to a human who is not there. Never interview once the run has started.
 3. Pick tier and fan-out. One sub-question stays inline. 2-4 independent subtopics may use subagents. More than 4 means split the request or ask to raise the cap.
 4. Brief each subagent with `references/subagent-brief.md`. Boundaries are the dedup layer: one path, touch nothing else, return a proposed index row.
 5. Checkpoint every return immediately under `context/research/<topic>/.wip/`: `brief.md`, `returns/<agent>.md`, `sources.jsonl`, and `run-state.md`. A fresh session resumes from these files before doing new work.
