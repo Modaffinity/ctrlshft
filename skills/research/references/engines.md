@@ -54,14 +54,35 @@ If `PERPLEXITY_API_KEY` is missing or empty, stop with: "Config error: PERPLEXIT
 
 ## Gemini
 
-Use only for T3 `dive` through the existing `deep-research` adapter. Preserve its dry-run estimate, approval gate, and redaction audit.
+**Availability: container only.** This path runs through the `deep-research` adapter at
+`~/cortextos/skills/deep-research/`, which exists **only inside the CortexOS container**. On the host —
+where `/research` runs — that directory does not exist and there is no host copy of `deep-research`, so
+the pointer below is dangling there. A host `dive` has exactly two honest routes:
+
+1. Use the **T3 alternate**: Perplexity `sonar-deep-research` (§Perplexity above), behind the same
+   approval gate, with anchor-quote verification mandatory.
+2. **Dispatch the dive to a container agent** that has the adapter.
+
+Check which environment you are in before you promise a Gemini dive, and say which route you are taking.
+Never announce a dive you cannot run.
+
+Use only for T3 `dive`. Preserve its dry-run estimate, approval gate, and redaction audit.
 
 Cost: $1–3 typical (`quick`); $3–7 (`standard`/`deep`). Dry-run estimate is a conservative ceiling-gate, not a spend forecast — observed actuals have been significantly lower.
 
-**Protocol: read `~/cortextos/skills/deep-research/SKILL.md`** — the proven dry-run/approval gates, the
-non-blocking three-step invocation, and the completion contract (`RUN_META.md`, redaction audit, commit)
-live there and are not restated here. That package is deployed and catalog-visible but deliberately not
-linked to any agent: read it by path when you reach this tier.
+**Protocol (container only): read `~/cortextos/skills/deep-research/SKILL.md`** — the proven
+dry-run/approval gates, the non-blocking three-step invocation, and the completion contract
+(`RUN_META.md`, redaction audit, commit) live there and are not restated here. That package is deployed
+and catalog-visible but deliberately not linked to any agent: read it by path when you reach this tier.
+
+**It is deployed as `SKILL.md` alone** — seven companion documents it references (its operating model,
+artifact schema, readme, and its brief/packet/task templates) were **not deployed with it**. Do not go
+looking for them and do not treat their absence as a blocker. What they would have supplied, you
+already have: the four-step gate is in this skill's `SKILL.md` §T3 Dive Protocol, the cost calibration
+is the band above, and the completion contract is — write `RUN_META.md` into the run folder, run the
+redaction audit, file the synthesis to `context/research/<topic>/`, add the INDEX row, run
+`scripts/check-surface.sh`. **If `deep-research/SKILL.md` asks you to consult a file that is not there,
+proceed on the above rather than stopping.**
 
 Prerequisite: `GEMINI_DEEP_RESEARCH_API_KEY` in environment. If missing, stop — do not retry.
 

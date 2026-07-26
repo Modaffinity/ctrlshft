@@ -23,7 +23,7 @@ Default inference: ordinary "research/look into" starts as `check` if it is a si
 
 | `--engine` | Tiers | Cost posture |
 |---|---|---|
-| `claude` | T0-T2 | $0 subscription path; announce planned search/tool budget. |
+| `claude` | T0-T2 | Free on the operator's subscription path; announce planned search/tool budget. |
 | `perplexity` | T1-T2 grounded lookup; T3 alternate only by request | Metered. Announce estimate before spending and actual after. Missing key is a config error. |
 | `gemini` | T3 dive | Existing `deep-research` gate. Estimate before approval; do not bypass its redaction/cost checks. |
 
