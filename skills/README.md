@@ -19,13 +19,20 @@ Skills are auto-discovered from `skills/*/SKILL.md`. The agent reads each skill'
 | `error-audit` | After sessions with repeated retry loops | Analyze cross-session error patterns to surface systemic issues |
 | `document` | "write docs", "update the README", "create an ADR" | Write, update, or audit documentation |
 | `explore` | "explore", "understand", "investigate", "how does X work" | Deep codebase exploration via parallel subagents |
+| `finish-branch` | "finish this branch", "merge this", "integrate this work", "clean up the branch" | Green-suite gate, integration decision, branch + worktree teardown |
 | `frontend-component-style` | "build a component", "scaffold this", "extract this into" | Component file structure, naming, and layer separation |
+| `graphify` | Any question about a codebase's architecture or file relationships, especially when `graphify-out/` exists | Turns code, docs, papers, images into a queryable knowledge graph |
 | `grill-me` | "grill me", "interview me", "ask me questions" | Relentless interrogation until shared understanding |
+| `grill-with-docs` | Stress-testing a plan against the project's domain model | Grills the design and updates CONTEXT.md / ADRs inline as decisions crystallise |
 | `halbert-copy-editor` | "punch up my copy", "edit sales page", "improve conversions" | Edit persuasive writing using the Halbert Copywriting Method |
 | `improve-architecture` | "improve architecture", "find shallow modules" | Deep module analysis for architectural improvements |
 | `npm-security-audit` | "is this package safe", "audit this project" | Layered security audit before npm install |
+| `opensrc` | "fetch source for", "how does X work internally", "get the implementation of" | Fetches dependency source so the agent can read a library's internals |
+| `plan` | "/carve", "break this down", "what should we build first" | Vague idea → vision / branches / goals, emitted as dispatchable CortexOS work packets |
+| `plan-archive` | After merging a PR, or periodic cleanup | Archives plan-mode files by linking them to the merged PR |
 | `prd-to-issues` | "break this PRD into issues", "create a kanban" | PRD → vertical slices → GitHub issues (AFK/HITL labeled) |
 | `pr-preflight` | "/preflight", "pre-PR audit" | Exhaustive pre-PR audit that front-runs review tools |
+| `press1-check` | After sessions with many manual approval prompts; auditing hook permissions | Identifies which Bash commands required a "press 1" approval |
 | `research` | "research", "investigate before building", "flush unknowns" | Tiered research (`scan`/`check`/`dive`), filed into `context/research/`; paid tiers ask first. **Deploy-managed from CortexOS HQ — do not hand-edit here** (see note below) |
 | `review-pr-copilot` | "address review comments", "fix PR comments" | Triage Copilot review comments, fix, resolve threads |
 | `sanity-best-practices` | Working with Sanity CMS content, schemas, GROQ | Sanity development patterns and framework integrations |
@@ -35,6 +42,7 @@ Skills are auto-discovered from `skills/*/SKILL.md`. The agent reads each skill'
 | `stress-test` | "/stress-test", before deploying, after rules update | Adversarial rule compliance testing |
 | `systematic-debugging` | Any bug, test failure, unexpected behavior | Root cause investigation before proposing fixes |
 | `tdd` | "write tests first", "TDD", "red-green refactor" | Red-green-refactor workflow (backend only) |
+| `visual-feedback` | Implementing UI, checking dark/light mode, validating animations | Browser-screenshot feedback loop so frontend changes are verified, not assumed |
 | `write-a-prd` | "write a PRD", "plan a feature" | Product Requirements Document from a rough idea |
 
 ### One exception to "dotfiles is the source of truth": `research`
@@ -58,7 +66,7 @@ one piece the converge does **not** manage; update it by hand if the skill's tie
 Skills chain together for end-to-end feature delivery:
 
 ```
-/grill-me → /write-a-prd → /architect → /prd-to-issues → /do-work → shft
+/grill-me → /write-a-prd → /architect → /prd-to-issues → /do-work → /finish → shft
 ```
 
 ## Private Skills
@@ -70,6 +78,8 @@ Skills chain together for end-to-end feature delivery:
 1. Create `skills/your-skill/SKILL.md`
 2. Add YAML frontmatter with `name` and `description` (description contains trigger phrases)
 3. Define the workflow steps, output format, and rules
-4. Auto-discovered — no registration needed
+4. **Add a row to the Skill Inventory table above** — CI fails otherwise (`integrity.yml` → "Ensure skill and command inventories match disk"). The check runs both ways, so deleting a skill means deleting its row too.
+
+Loading is automatic — the agent discovers `skills/*/SKILL.md` without registration. The inventory row is for humans, and the check exists because the table silently drifted to 7 missing entries before it did.
 
 See [ADR-001](../docs/adr/ADR-001-vendor-boundary.md) for what belongs in `skills/` (universal workflow) vs `_local/` (stack-specific).
