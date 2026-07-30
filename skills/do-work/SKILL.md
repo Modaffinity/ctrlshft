@@ -70,6 +70,8 @@ Skip this step when using Commit mode for intermediate checkpoints — preflight
 
 After preflight passes, use the atomic-commits skill in **Ship** mode — push and open a PR.
 
+Once the PR merges, the branch still exists. Use the **finish-branch** skill (`/finish`) to close it out — it gates on a green suite, then tears down the branch and any worktree. Do-work ends at the PR; finish-branch ends at a clean tree.
+
 ### 7. Context Check
 
 If this is one phase of a multi-phase plan, or if context usage is over 40%, follow the standard handoff protocol (`@~/dotfiles/instructions/handoff.instructions.md`) — commit all work, persist the remaining plan to `working/`, and provide the pickup command.

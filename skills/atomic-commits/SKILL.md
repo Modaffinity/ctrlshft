@@ -166,6 +166,8 @@ This is an **agent tool invocation** (MCP), not a shell command — do not run i
 
 This ensures every PR gets at least one Copilot review pass before human review.
 
+**After the PR merges:** branch and worktree teardown is not this skill's job — hand off to `finish-branch` (`/finish`), which gates on a green suite and cleans up. Ship mode ends here.
+
 ---
 
 ## Conventional Commit Message Format
