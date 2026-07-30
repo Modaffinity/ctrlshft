@@ -6,6 +6,7 @@ on:
       - "CLAUDE.base.md"
       - "bin/validate-symlinks.sh"
       - "skills/**"
+      - "commands/**"
       - ".github/workflows/integrity.yml"
   push:
     branches:
@@ -17,6 +18,7 @@ on:
       - "CLAUDE.base.md"
       - "bin/validate-symlinks.sh"
       - "skills/**"
+      - "commands/**"
       - ".github/workflows/integrity.yml"
 
 jobs:
@@ -26,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Ensure source-of-truth language exists
         run: |
@@ -54,6 +56,58 @@ jobs:
           fi
 
           echo "✓ No deprecated skill flags detected"
+
+      - name: Ensure skill and command inventories match disk
+        run: |
+          set -euo pipefail
+          BT='`'
+          ERRORS=0
+
+          # Every skill on disk must have an inventory row
+          for dir in skills/*/; do
+            name=$(basename "$dir")
+            if [ "$name" = "_local" ]; then continue; fi
+            if [ ! -f "$dir/SKILL.md" ]; then continue; fi
+            if ! grep -q "^| ${BT}${name}${BT}" skills/README.md; then
+              echo "  ✗ skill '$name' exists on disk but is missing from the skills/README.md inventory"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+
+          # Every inventory row must have a skill on disk
+          while IFS= read -r name; do
+            if [ ! -f "skills/$name/SKILL.md" ]; then
+              echo "  ✗ skills/README.md lists '$name' but skills/$name/SKILL.md does not exist"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done < <(sed -n "s/^| ${BT}\([a-z0-9-]\{1,\}\)${BT}.*/\1/p" skills/README.md)
+
+          # Every command on disk must have an inventory row
+          for file in commands/*.md; do
+            name=$(basename "$file" .md)
+            if [ "$name" = "README" ]; then continue; fi
+            if ! grep -q "^| ${BT}/${name}${BT}" commands/README.md; then
+              echo "  ✗ command '/$name' exists on disk but is missing from the commands/README.md inventory"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+
+          # Every command row must have a command on disk
+          while IFS= read -r name; do
+            if [ ! -f "commands/$name.md" ]; then
+              echo "  ✗ commands/README.md lists '/$name' but commands/$name.md does not exist"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done < <(sed -n "s@^| ${BT}/\([a-z0-9-]\{1,\}\)${BT}.*@\1@p" commands/README.md)
+
+          if [ "$ERRORS" -gt 0 ]; then
+            echo ""
+            echo "✗ $ERRORS inventory drift error(s)."
+            echo "  Adding or removing a skill or command means updating its inventory table in the same commit."
+            exit 1
+          fi
+
+          echo "✓ Skill and command inventories match disk"
 
       - name: Run static integrity checks
         run: |
