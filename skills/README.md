@@ -44,22 +44,29 @@ Skills are auto-discovered from `skills/*/SKILL.md`. The agent reads each skill'
 | `tdd` | "write tests first", "TDD", "red-green refactor" | Red-green-refactor workflow (backend only) |
 | `visual-feedback` | Implementing UI, checking dark/light mode, validating animations | Browser-screenshot feedback loop so frontend changes are verified, not assumed |
 | `write-a-prd` | "write a PRD", "plan a feature" | Product Requirements Document from a rough idea |
+| `writing-documentation` | Authoring or revising any `.md`; "tighten this doc", "clean up the README" | Markdown a human can act on and an agent can parse, without inflating context. Pairs with `document`, which chooses *what* to produce. **Deploy-managed from CortexOS HQ — do not hand-edit here** (see note below) |
 
-### One exception to "dotfiles is the source of truth": `research`
+### The exception to "dotfiles is the source of truth": deploy-managed skills
 
-`skills/research/` is the **only** skill here that is deploy-managed from outside this repo. Its source
-of truth is the CortexOS HQ skills tree (`~/cortexos-pods/hq/skills/research/`), and it reaches this
-directory — and the container runtime the CortexOS agents load — through one command run from the
-control-plane repo:
+**Two skills here are deploy-managed from outside this repo — `research` and `writing-documentation`.**
+Their source of truth is the CortexOS HQ skills tree (`~/cortexos-pods/hq/skills/<skill>/`), and each
+reaches this directory — and the container runtime the CortexOS agents load — through one command run
+from the control-plane repo:
 
 ```bash
-bash scripts/check_skill_sync.sh --fix research
+bash scripts/check_skill_sync.sh --fix <skill>
 ```
 
-**Edit the HQ source, then run that. Never hand-edit `skills/research/` here** — a hand edit is
-silently overwritten on the next converge, and hand-maintained copies are what let four agents run a
-stale version of this skill for ~3 hours (CortexOS BT-033). `~/dotfiles/commands/research.md` is the
-one piece the converge does **not** manage; update it by hand if the skill's tier flags change.
+**Edit the HQ source, then run that. Never hand-edit those two folders here** — a hand edit is silently
+overwritten on the next converge, and hand-maintained copies are what let four agents run a stale
+version of the `research` skill for ~3 hours (CortexOS BT-033). Files under `~/dotfiles/commands/` are
+the piece the converge does **not** manage; update those by hand.
+
+**These are copies rather than symlinks on purpose, and a symlink would not merely be untidy — it would
+break the deploy.** The converge writes with `cp -f`, so a symlinked folder (or a symlinked `SKILL.md`)
+makes source and destination the same file; `cp` reports *"are identical (not copied)"*, exits 1, and
+the converge fails. A second editable canon is prevented by detection instead: every check fingerprints
+this copy against HQ and fails on drift.
 
 ## The Planning Pipeline
 
