@@ -1,0 +1,51 @@
+# Profile: blind — Codex reviews a change it is handed, and can reach nothing.
+#
+# Invoked as `codex exec -p blind -C <empty dir> -` with the diff on stdin.
+# cwd is an EMPTY directory and the change arrives as prompt text, so blindness
+# comes from having nothing to read, not from a rule that forbids reading. That
+# distinction is load-bearing: a profile denying "/" aborts with a bare exit 134
+# because the process must read the system to execute at all, and a deny cannot
+# be re-opened by a narrower read — deny is absolute, not a precedence level.
+# Both measured 2026-08-10; codex-bridge evidence/bridge-v2-profile-probe- and
+# evidence/task-2-b3-grants-and-git/.
+#
+# WHY THIS PROFILE IS THE DEFAULT ONE TO REACH FOR. Every attack review cycles
+# 2, 3, 4 and 6 found against `gate` needs the repository to be readable or
+# seedable — a repo dictating its own verdict through AGENTS.md, a .codex/
+# config launching an unsandboxed MCP server, a .git/config executing a command
+# before any sandbox exists. None of them has a surface here. It also closes
+# CODEX-OL-06: Codex cannot absorb a previous review lying in the tree, because
+# there is no tree.
+#
+# The cost, stated so nobody is surprised by it: blind cannot follow a call site
+# out of the diff. A finding that needs the file three directories away is one
+# this profile cannot make. That is the trade, and `read` is where you go for
+# the other side of it.
+#
+# The policy is restated rather than inherited, as in every profile here: this
+# file is the unit the wrapper names, so it must be legible alone and must not
+# soften if the base config is ever loosened.
+
+sandbox_mode = "read-only"
+approval_policy = "never"
+
+# Belt and braces, and not redundant. The base config disables web search, which
+# the sandbox does NOT cover — with read-only and the network off, Codex still
+# searched the web and returned a live headline until this key was set. A
+# profile that inherits its only egress fence from a file it does not name is a
+# profile whose fence can be removed somewhere else.
+web_search = "disabled"
+
+default_permissions = "blind"
+
+[permissions.blind]
+extends = ":read-only"
+
+[permissions.blind.network]
+enabled = false
+
+# The empty cwd is the fence; this is the second line of it. Verified to bind:
+# `cat ~/.zshrc` under this profile returns "Operation not permitted" while
+# /bin/echo still runs, so the deny is scoped rather than total.
+[permissions.blind.filesystem]
+"~/**" = "deny"

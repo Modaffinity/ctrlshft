@@ -81,6 +81,13 @@ usage() {
   cat >&2 <<'EOF'
 ask-codex — a fenced call to OpenAI Codex. Takes a mode, never a sandbox.
 
+  ask-codex blind [--uncommitted | --base <ref> | --commit <sha>] [question]
+        Codex is handed the change AS TEXT and can read nothing at all — cwd is
+        an empty directory (profile: blind, read-only, network and web search
+        off). Reach for this first. It cannot follow a call site out of the
+        diff; in exchange, a repository cannot steer it, seed it, or feed it a
+        previous review as if it were a finding.
+
   ask-codex review [--uncommitted | --base <ref> | --commit <sha>]
         Codex reads a diff and writes nothing (profile: review, read-only).
         Default scope is --uncommitted. Takes no free-text instructions —
@@ -91,7 +98,7 @@ ask-codex — a fenced call to OpenAI Codex. Takes a mode, never a sandbox.
         Codex runs this repo's suite inside a disposable clone and files a
         verdict (profile: gate, workspace-write confined to that clone).
 
-Both file evidence/codex-<mode>-<stamp>/ in the current repo, or in the
+All three file evidence/codex-<mode>-<stamp>/ in the current repo, or in the
 codex-bridge pod when the repo has no evidence/ directory.
 
 Exit codes — the run's own outcome, never Codex's exit code:
@@ -113,6 +120,9 @@ op = sys.argv[1]
 def read_z(p):
     with open(p, 'rb') as f:
         return [x.decode() for x in f.read().split(b'\0') if x]
+
+def read_bytes_z(b):
+    return [x.decode('utf-8', 'surrogateescape') for x in b.split(b'\0') if x]
 
 if op == 'seed':
     # Two jobs, done here because both turn on exact path handling that shell
@@ -318,6 +328,89 @@ elif op == 'corroborate':
                f"begins with it (checked {len(cmds)} command(s); a suite that is "
                f"only mentioned inside another command does not count)")
 
+elif op == 'blinddiff':
+    # Assemble the WHOLE change as text, for a run that will see nothing else.
+    #
+    # 🛑 UNTRACKED FILES ARE THE POINT. `git diff HEAD` drops them silently —
+    # measured in the pre-flight spike, and the reason gate asserts its clone
+    # against the working tree. Here the failure is worse, because there is no
+    # tree to fall back on: a blind review of a diff missing a brand-new file
+    # reviews a change the operator does not have, and nothing in the output
+    # would say so. Each untracked file is appended as its own added-file diff.
+    #
+    # Binary files are named and NOT inlined. A blind reviewer cannot say
+    # anything useful about bytes, and silently dropping them would repeat the
+    # exact defect above one level down.
+    import subprocess
+    repo, scope, val = sys.argv[2], sys.argv[3], sys.argv[4]
+
+    def git(*a, binary=False):
+        r = subprocess.run(['git', '-C', repo, *a],
+                           capture_output=True)
+        if r.returncode != 0:
+            sys.stderr.write(r.stderr.decode('utf-8', 'replace'))
+            sys.exit(1)
+        return r.stdout if binary else r.stdout.decode('utf-8', 'replace')
+
+    parts, names = [], []
+    if scope == '--commit':
+        parts.append(git('show', '--format=medium', val))
+    elif scope == '--base':
+        parts.append(git('diff', val + '...HEAD'))
+    else:
+        parts.append(git('diff', 'HEAD'))
+        for rel in read_bytes_z(git('ls-files', '--others', '--exclude-standard',
+                                    '-z', binary=True)):
+            full = os.path.join(repo, rel)
+            if not os.path.isfile(full) or os.path.islink(full):
+                continue
+            with open(full, 'rb') as fh:
+                blob = fh.read()
+            if b'\0' in blob[:8192]:
+                names.append(rel)
+                continue
+            text = blob.decode('utf-8', 'replace')
+            lines = text.split('\n')
+            if lines and lines[-1] == '':
+                lines.pop()
+            parts.append(
+                'diff --git a/%s b/%s\nnew file mode 100644\n--- /dev/null\n+++ b/%s\n@@ -0,0 +1,%d @@\n%s\n'
+                % (rel, rel, rel, len(lines), '\n'.join('+' + l for l in lines)))
+
+    body = '\n'.join(p for p in parts if p.strip())
+    if names:
+        body += ('\n\n[%d untracked BINARY file(s) present and not shown: %s]\n'
+                 % (len(names), ', '.join(sorted(names)[:20])))
+    if not body.strip():
+        print('EMPTY'); sys.exit(0)
+
+    # 🛑 CHARACTERS, NOT LINES. The model API refuses an input over 1,048,576
+    # characters, and a diff's line count says almost nothing about its size —
+    # a commit of 2,698 lines came to 1,355,531 characters because this pod
+    # commits JSON event streams, where one line runs to hundreds of kilobytes.
+    # Measured by spending a call to find out, which is the thing this check
+    # exists to stop happening twice.
+    #
+    # REFUSE, NEVER TRUNCATE. A silently shortened diff is a review of a change
+    # the operator does not have, reported in the same voice as any other.
+    limit = int(sys.argv[6]) if len(sys.argv) > 6 else 1000000
+    if len(body) > limit:
+        big = []
+        for chunk in body.split('\ndiff --git '):
+            first = chunk.split('\n', 1)[0]
+            name = first.split(' b/')[-1] if ' b/' in first else first[:60]
+            big.append((len(chunk), name))
+        big.sort(reverse=True)
+        print('TOOBIG %d %d %s' % (len(body), limit,
+                                   ' | '.join('%s (%dk)' % (n, c // 1000)
+                                              for c, n in big[:4])))
+        sys.exit(0)
+
+    scratch = sys.argv[5]
+    with open(os.path.join(scratch, 'change.diff'), 'w') as fh:
+        fh.write(body)
+    print('OK %d %d %d' % (len(body.split('\n')), len(names), len(body)))
+
 elif op == 'gitconfig':
     # A repository's OWN .git/config names commands git executes: core.fsmonitor,
     # core.pager, core.hooksPath, filter.*.clean, alias.*, remote.*.uploadpack,
@@ -473,6 +566,14 @@ preflight() {
   ! grep -q 'danger-full-access' "$base" "$prof" \
     || die "danger-full-access appears in the deployed config — refusing to run" $EX_ENV
 
+  # THE SANDBOX DOES NOT COVER WEB SEARCH, and search is ON by default. Measured:
+  # from an empty directory, read-only, network off, Codex searched the web and
+  # returned a live headline. The key is a top-level STRING — `[tools] web_search
+  # = false` parses and is silently ignored — so this asserts the spelling that
+  # works, not merely that the words appear.
+  grep -qE '^[[:space:]]*web_search[[:space:]]*=[[:space:]]*"disabled"' "$base" \
+    || die "$base does not set web_search = \"disabled\" — every mode could reach the internet" $EX_ENV
+
   if [ "$mode" = gate ]; then
     grep -qE '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"workspace-write"' "$prof" \
       || die "$prof is not workspace-write — gate cannot run" $EX_ENV
@@ -484,7 +585,23 @@ preflight() {
       || die "$prof is missing exclude_tmpdir_env_var = true — \$TMPDIR would be writable" $EX_ENV
   else
     grep -qE '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"read-only"' "$prof" \
-      || die "$prof is not read-only — review must not be able to write" $EX_ENV
+      || die "$prof is not read-only — $mode must not be able to write" $EX_ENV
+  fi
+
+  if [ "$mode" = blind ]; then
+    # blind's whole claim is that it reads nothing, and two of its three fences
+    # are keys in this file rather than anything the run would notice missing.
+    # A profile name that does not resolve is the worst case measured on this
+    # mechanism: `codex exec -p nosuchprofile` exits 0 and reads the file a real
+    # profile denies, with nothing in the event stream to tell the two apart. The
+    # -f check above catches a missing FILE; these catch a file that is present
+    # and toothless.
+    grep -qE '^[[:space:]]*default_permissions[[:space:]]*=[[:space:]]*"blind"' "$prof" \
+      || die "$prof does not select the blind permission profile — refusing to run" $EX_ENV
+    grep -qE '^\[permissions\.blind\]' "$prof" \
+      || die "$prof names the blind profile but does not define it — refusing to run" $EX_ENV
+    grep -qE '^[[:space:]]*web_search[[:space:]]*=[[:space:]]*"disabled"' "$prof" \
+      || die "$prof does not disable web search — blind would not be blind" $EX_ENV
   fi
 }
 
@@ -666,6 +783,45 @@ run_review() {
   return 0
 }
 
+# The change goes in as TEXT and cwd is an empty directory, so there is no tree
+# to steer the model, seed a config layer, or leave a previous review lying
+# around. Note what this costs: `codex exec review` requires a git repository, so
+# blind cannot use the review subcommand at all and gets no structured findings
+# array — the prompt below is doing the job that subcommand does for `review`.
+run_blind() {
+  local empty="$1" extra="$2" out="$3"
+
+  local prompt
+  prompt="You are reviewing a code change. You cannot see the repository: the
+complete diff is below and is all you have. Do not guess at the contents of
+files you were not shown — say what you would need instead.
+
+Report concrete defects. For each one give the file, the hunk or line, the
+mechanism by which it fails, and the fix. Order them by severity.
+
+If you find nothing, say so plainly. A review that manufactures a finding to
+justify itself is worse than one that reports a clean change, because it will
+be believed."
+  [ -n "$extra" ] && prompt="$prompt
+
+The caller also asks: $extra"
+  prompt="$prompt
+
+--- BEGIN DIFF ---
+$(cat "$RUN_SCRATCH/change.diff")
+--- END DIFF ---"
+
+  # No caller-controlled text reaches argv: the prompt travels on stdin, which is
+  # what `-` names. That is the same door cycle 1 found open on the review path,
+  # closed here by construction rather than by refusing the feature.
+  local -a argv=("$CODEX_BIN" exec -p blind --json --skip-git-repo-check -C "$empty" -)
+  printf '%s\n' "${argv[*]}" > "$out/invocation.txt"
+  printf '%s\n' "$prompt" > "$out/prompt.txt"
+  "${argv[@]}" < "$out/prompt.txt" \
+    > "$RUN_SCRATCH/stream.jsonl" 2> "$RUN_SCRATCH/codex-stderr.log"
+  return 0
+}
+
 run_gate() {
   local tree="$1" extra="$2" out="$3"
   # 🛑 NOT `prompt=$(cat <<EOF …)`. macOS ships bash 3.2, which mis-parses an ODD
@@ -733,21 +889,22 @@ main() {
   [ $# -ge 1 ] || usage
   local mode="$1"; shift
   case "$mode" in
-    review|gate) ;;
+    blind|review|gate) ;;
     -h|--help)   usage ;;
-    *) say "unknown mode '$mode' — expected 'review' or 'gate'"; usage ;;
+    *) say "unknown mode '$mode' — expected 'blind', 'review' or 'gate'"; usage ;;
   esac
 
   # Strict parsing. Everything not named here is refused rather than forwarded:
   # a flag this wrapper passes through unread is a flag that can widen the fence.
   local scope_flag="--uncommitted" scope_val="" extra=""
+  local blind_lines="" blind_binaries=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --uncommitted)
-        [ "$mode" = review ] || { say "--uncommitted applies to review, not gate"; usage; }
+        [ "$mode" != gate ] || { say "--uncommitted applies to blind and review, not gate"; usage; }
         scope_flag="--uncommitted"; scope_val=""; shift ;;
       --base|--commit)
-        [ "$mode" = review ] || { say "$1 applies to review, not gate"; usage; }
+        [ "$mode" != gate ] || { say "$1 applies to blind and review, not gate"; usage; }
         [ $# -ge 2 ] || { say "$1 needs a value"; usage; }
         # A ref never begins with '-', and this value is the one caller-controlled
         # string still reaching argv. Refusing the shape costs nothing and closes
@@ -834,6 +991,31 @@ main() {
     [ -e "$RUN_TREE/$REPORT_NAME" ] \
       && die "$REPORT_NAME already exists in this repository — rename it; the wrapper cannot tell a stale report from a fresh one" $EX_ENV
     run_gate "$RUN_TREE" "$extra" "$out"
+  elif [ "$mode" = blind ]; then
+    # Assembled BEFORE the empty directory exists, because it is read out of the
+    # real repository and is the only thing that will cross into the run.
+    local dstat
+    dstat=$(_py blinddiff "$repo" "$scope_flag" "$scope_val" "$RUN_SCRATCH") \
+      || die "could not assemble the diff for $scope_flag $scope_val" $EX_ENV
+    [ "$dstat" = EMPTY ] \
+      && die "there is no change to review: $scope_flag $scope_val produced an empty diff" $EX_ENV
+    case "$dstat" in
+      TOOBIG*)
+        set -- $dstat
+        say "this change is too large to hand to a blind review: $2 characters, limit $3."
+        say "the model refuses an input over ~1M characters, and truncating the diff"
+        say "would review a change you do not have. Largest contributors:"
+        say "  ${dstat#TOOBIG $2 $3 }"
+        say "narrow the scope, or use 'ask-codex review' — it reads the tree instead"
+        exit $EX_USAGE ;;
+    esac
+    set -- $dstat
+    blind_lines="$2"; blind_binaries="$3"
+    cp "$RUN_SCRATCH/change.diff" "$out/change.diff"
+    RUN_TREE=$(mktemp -d "${TMPDIR:-/tmp}/ask-codex-blind-XXXXXX") \
+      || die "could not create the empty working directory" $EX_ENV
+    say "$blind_lines diff line(s) in; cwd is an empty directory and nothing else is readable"
+    run_blind "$RUN_TREE" "$extra" "$out"
   else
     run_review "$repo" "$scope_flag" "$scope_val" "$out"
   fi
@@ -904,6 +1086,13 @@ main() {
     else
       printf 'scope: %s %s\n' "$scope_flag" "$scope_val"
     fi
+    if [ "$mode" = blind ]; then
+      printf 'reach: none — cwd was an empty directory, the repository was never readable\n'
+      printf 'diff_lines: %s\n' "$blind_lines"
+      printf 'untracked_binaries_omitted: %s\n' "$blind_binaries"
+      printf 'delivery: the diff below was the model'"'"'s ONLY input, so a finding it makes about a file outside this diff is a guess and should be read as one\n'
+      printf 'network: off\n'
+    fi
     printf 'codex_session_id: %s\n' "$session"
     printf 'generated_by: ask-codex\n'
     printf -- '---\n\n'
@@ -915,6 +1104,9 @@ main() {
   printf '\n---\n'
   if [ "$mode" = gate ]; then
     printf 'ask-codex: mode=gate verdict=%s suite=%s\n' "$verdict" "${suite:-unstated}"
+  elif [ "$mode" = blind ]; then
+    printf 'ask-codex: mode=blind scope=%s %s (%s diff lines; nothing else was readable)\n' \
+      "$scope_flag" "$scope_val" "$blind_lines"
   else
     printf 'ask-codex: mode=review scope=%s %s\n' "$scope_flag" "$scope_val"
   fi
