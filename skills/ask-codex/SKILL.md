@@ -53,6 +53,13 @@ tell you that.
 
 **`ask-codex` is enforced. The MCP `codex` tool is not.**
 
+**Enforced literally, not as a manner of speaking.** A permission rule denies
+`/Applications/ChatGPT.app/Contents/Resources/codex` — the absolute path, because `codex` is not on
+`PATH` and a rule naming it would deny a string nobody can execute — along with both
+`--dangerously-bypass-*` flags. `ask-codex` is allowed outright, so it needs no approval. If you find
+yourself reaching for bare Codex, the shell will refuse you; that is working as intended, and the
+answer is a mode above, not a way around it.
+
 The MCP tool is genuinely better for free-form back-and-forth: `codex-reply` gives real multi-turn
 argument, and `ask-codex` gives you one shot. Use it for thinking out loud with another model.
 
@@ -76,6 +83,11 @@ untrusted repository *without anything in it executing*, a fresh session correct
 `ask-codex scoped`. The command came back **"This command requires approval."** The session then
 called `mcp__codex__codex` directly — the unfenced path — for the task whose entire premise was
 containment.
+
+*That particular trigger is now closed — `ask-codex` is allowed outright and no longer prompts. The
+rule below is not, because the approval prompt was only one way the fenced door can be shut: a
+missing profile, a failed `bootstrap.sh`, an expired login and a harness sandbox all produce the same
+situation and the same temptation.*
 
 Nothing went wrong with its reasoning. It wanted to complete the task, the fenced door was shut, and
 an open door was right there.
@@ -117,7 +129,10 @@ Three things it will not do, and each is a refusal rather than a best effort:
 
 - **Truncate an oversized diff.** A shortened diff is a review of a change you do not have, delivered
   in the same voice as any other. It refuses and names the largest files.
-- **Copy a path that resolves outside the repository**, including through a symlink.
+- **Copy a path that resolves outside the repository**, including through a symlink. A symlinked file
+  inside the repo arrives at **the path you named**, carrying the target's bytes; a symlinked
+  *directory* is refused by name rather than silently skipped, and any excluded directory
+  (`.git`, `node_modules`, `__pycache__`, `.codex`) is reported to you rather than dropped quietly.
 - **Report a `gate` verdict its own event stream does not support.** A repository can tell Codex what
   to report; the wrapper cross-checks the claimed suite against the commands that actually ran.
 
