@@ -37,9 +37,24 @@ set -uo pipefail
 # script that calls codex with --dangerously-bypass-approvals-and-sandbox, and
 # the permission rule — which matches command TEXT — would never see it.
 readonly CODEX_BIN="/Applications/ChatGPT.app/Contents/Resources/codex"
-readonly AGENT_HOME="$HOME/.codex-agent"
+
+# THE POLICY ROOT IS NOT DERIVED FROM $HOME. $HOME is caller-controlled, and
+# every file the fence is made of lives under it — so `HOME=<fake> ask-codex gate`
+# supplied attacker-authored profiles that satisfied every pre-flight check and
+# carried an [mcp_servers.*] entry, which Codex's unsandboxed parent launched
+# before a single model token. Pre-flight cannot catch that: it validates
+# whichever config it was pointed at, so it measures the process, not the
+# product. Found by the Task 5 independent review, cycle 5.
+#
+# The password database is the answer rather than a hardcoded path, because these
+# dotfiles are shared across machines and users. pwd.getpwuid() reads the account
+# record for the real uid and ignores the environment entirely.
+REAL_HOME=$(python3 -c 'import pwd, os; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null) \
+  || { printf 'ask-codex: cannot resolve the real home directory\n' >&2; exit 4; }
+readonly REAL_HOME
+readonly AGENT_HOME="$REAL_HOME/.codex-agent"
 readonly REPORT_NAME=".ask-codex-report.md"
-readonly POD_EVIDENCE="$HOME/Library/CloudStorage/Dropbox/LLM/cortexos-pods/hq/codex-bridge/evidence"
+readonly POD_EVIDENCE="$REAL_HOME/Library/CloudStorage/Dropbox/LLM/cortexos-pods/hq/codex-bridge/evidence"
 readonly STALE_TREE_HOURS=24
 
 # Unconditional, never ${CODEX_HOME:-...}: an inherited value would put the run
@@ -267,16 +282,41 @@ elif op == 'corroborate':
     s = suite.strip()
     if not s or s.lower() == 'none':
         print("the report claims a suite ran but names none"); sys.exit(0)
-    # Whitespace-normalised full-string match, and no program-name fallback: the
-    # prompt asks for the exact command, so accepting the program name alone let
-    # a fabricated SUITE corroborate itself against something incidental the
-    # agent ran while exploring. Be clear about what this does prove — a matching
-    # command ran — and what it does not: that the command was a real suite.
+    # THE SUITE MUST HAVE BEEN INVOKED, NOT MERELY MENTIONED. A plain substring
+    # test over the joined commands — which is what this was, despite a comment
+    # claiming otherwise — let `SUITE: bash run_tests.sh` corroborate against a
+    # run whose only commands were `grep -n "bash run_tests.sh" README.md` and
+    # `cat AGENTS.md`. A hostile repo needed only to get its fabricated suite
+    # name to APPEAR INSIDE any executed command. Found by the review, cycle 5.
+    #
+    # So each command is unwrapped from its shell (`/bin/zsh -lc "…"`), split on
+    # the operators that separate commands, and the suite must START a segment —
+    # i.e. occupy the position a command occupies, not sit in an argument.
+    import shlex
     norm = lambda x: ' '.join(x.split())
-    blob = '\n'.join(norm(c) for c in cmds)
-    print("ok" if norm(s) in blob
-          else f"the report names suite '{s}', but no command matching it appears "
-               f"among the {len(cmds)} command(s) the run actually executed")
+    target = norm(s)
+
+    def segments(c):
+        c = norm(c)
+        for sh in ('/bin/zsh -lc ', '/bin/bash -lc ', '/bin/sh -c ', 'zsh -lc ',
+                   'bash -lc ', 'bash -c ', 'sh -c '):
+            if c.startswith(sh):
+                inner = c[len(sh):].strip()
+                if len(inner) > 1 and inner[0] == inner[-1] and inner[0] in '"\'':
+                    inner = inner[1:-1]
+                c = norm(inner)
+                break
+        parts = [c]
+        for sep in ('&&', '||', ';', '|'):
+            parts = [q for p in parts for q in p.split(sep)]
+        return [norm(p) for p in parts if p.strip()]
+
+    hit = any(seg == target or seg.startswith(target + ' ')
+              for c in cmds for seg in segments(c))
+    print("ok" if hit
+          else f"the report names suite '{s}', but no command the run executed "
+               f"begins with it (checked {len(cmds)} command(s); a suite that is "
+               f"only mentioned inside another command does not count)")
 
 else:
     sys.exit(f"unknown op {op}")
@@ -619,6 +659,19 @@ main() {
     || die "no evidence/ here and no codex-bridge pod at $POD_EVIDENCE — refusing to run unrecorded" $EX_ENV
   mkdir -p "$out" || die "could not create $out" $EX_ENV
 
+  # Which policy actually governed this run, recorded so a later reader can tell
+  # a fenced run from an unfenced one instead of taking the report's word. The
+  # hashes matter more than the paths: they say WHICH profile was loaded.
+  {
+    printf 'codex_bin   %s\n' "$CODEX_BIN"
+    printf 'codex_home  %s\n' "$CODEX_HOME"
+    printf 'real_home   %s  (from the password database, not $HOME=%s)\n' "$REAL_HOME" "${HOME:-unset}"
+    for f in "$AGENT_HOME/config.toml" "$AGENT_HOME/$mode.config.toml"; do
+      printf '%-11s %s  %s\n' "$(basename "$f")" \
+        "$(shasum -a 256 "$f" 2>/dev/null | cut -c1-16)" "$f"
+    done
+  } > "$out/policy.txt"
+
   RUN_SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/ask-codex-run-XXXXXX") \
     || die "could not create a scratch directory" $EX_ENV
   sweep_stale_trees
@@ -703,7 +756,7 @@ main() {
       printf 'files_carried: %s\n' "$seeded"
       printf 'codex_config_excluded: %s\n' "$(cat "$RUN_SCRATCH/excluded-codex" 2>/dev/null || echo 0)"
       printf 'seed_fidelity: content, modes and symlinks asserted equal against the working tree; staged/unstaged split reproduced at path level; a partially staged file carries its WORKING-TREE content, so that one file'"'"'s index split is not reproduced; gitignored files deliberately not carried; submodules refused rather than partially seeded; ANY .codex/ directory is stripped, because a project config layer can launch MCP servers outside the sandbox\n'
-      printf 'corroboration: the SUITE command was found among the commands this run actually executed. That proves a matching command ran; it does not prove the command was a real test suite\n'
+      printf 'corroboration: a command this run executed BEGINS WITH the SUITE line, so the suite was invoked and not merely mentioned. That proves a matching command ran; it does not prove the command was a real test suite\n'
       printf 'network: off\n'
     else
       printf 'scope: %s %s\n' "$scope_flag" "$scope_val"
