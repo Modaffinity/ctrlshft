@@ -298,17 +298,51 @@ After all goals in the wave are emitted, produce the dispatch block. The skill *
 
 ### 6a. Bus-task-first commands
 
-For each goal, emit the CortexOS dispatch commands:
+For each goal, emit the CortexOS dispatch commands. **This is the whole form — copy it, do not
+paraphrase it.** Full detail and the failure modes: `references/dispatch-protocol.md`.
 
 ```
-cortexos create-task --title "<goal title>" --packet <packet-path> [--blocks <goal-ids>]
-cortexos spawn-worker --dir <project> --prompt "CortexOS task id: <task-id>. <brief>"
+docker exec cortexos-main bash -lc '
+CTX_ORG=<org> cortextos bus create-task "<goal title>" \
+  --project <pod> \
+  --assignee <worker-name> \
+  --desc "Packet: <pod-relative packet path>"'
+
+docker exec cortexos-main bash -lc '
+CTX_ORG=<org> cortextos spawn-worker <worker-name> \
+  --dir /home/node/.cortextos/default/pods/<pod> \
+  --prompt "CortexOS task id: <id>. Read AGENTS.md and the task packet at <path>, then do the task."'
 ```
 
-**The task id travels in the worker prompt, never as a flag.** `spawn-worker` has no `--task`
-option and creates no dashboard-visible task — see `references/dispatch-protocol.md`.
+**Six things that are wrong in the obvious guess, and the two that fail *silently*:**
 
-**`unlocks` maps to `--blocks`** — a goal that unlocks G3 and G4 dispatches with `--blocks G3,G4`.
+| | Correct |
+|---|---|
+| Binary | **`cortextos`**, not `cortexos`. `cortexos` is ours, `cortextos` is upstream's — this is `OL-57` and it recurs |
+| Subcommand | **`bus create-task`** — not top-level |
+| Title | **positional** — there is no `--title` flag |
+| Packet | no `--packet` flag exists. Put the path in **`--desc`**; the worker reaches it via the prompt |
+| Worker name | **required positional** on `spawn-worker` |
+| `--dir` | the **resolved container path**, `/home/node/.cortextos/default/pods/<pod>` |
+
+- ⚠️ **`CTX_ORG` selects the task store at create time.** Omit or mistake it and the task lands
+  somewhere the executing agent cannot complete it — the bus-completion gap, and it looks like
+  success. A pod under `hq/` does **not** have org `hq`; use the registered runtime org id.
+- ⚠️ **`--assignee` must be set and must match the worker's bus identity**, or nothing connects the
+  task to who runs it. The bus accepts any free text here and never validates it.
+
+**The task id travels in the worker prompt, never as a flag.** `spawn-worker` has no `--task` option
+and creates no dashboard-visible task.
+
+**Write the prompt to point at the task** — *"read `AGENTS.md` and the packet at X, then do the
+task."* A prompt that asserts identity or authority (*"you are X, now do Y"*) is refused as
+prompt-injection, correctly, because from inside a PTY it is indistinguishable from one.
+
+**`unlocks` does NOT map to `--blocks` at emission time.** `--blocks` takes comma-separated **task
+IDs**, and an unlocked goal has no task yet. Creating one so it can be pointed at breaks the rule
+that the bus is executable-only and the board is the queue — a pending task nobody can start is
+exactly the future-task noise that rule forbids. Keep the intent in `--desc`, and wire the edge the
+other way when the downstream goal is actually dispatched: **`--blocked-by <upstream-task-id>`**.
 
 ### 6b. Dependency edges
 

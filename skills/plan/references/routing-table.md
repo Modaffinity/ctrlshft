@@ -31,7 +31,7 @@ invent an assignment.
 | AIM strategy · framing · acceptance criteria | aim-agent | `claude-sonnet-4-6` | AIM domain ownership per routing matrix. Sonnet: standard framing and criteria work |
 | AIM domain quality judgment · enrichment synthesis | aim-agent | `claude-opus-4-6` | High-judgment AIM assessment. Opus: quality judgment needs the stronger model |
 | Independent review · critique (verdict-first) | codex-review-agent | `gpt-5.5` | Codex runtime (not `spawn-worker`); on-demand protocol per `codex_on_demand_review.md`. Triggered and bounded (≤3 rounds) |
-| Structured implementation · build · document production | ephemeral worker | `claude-sonnet-4-6` | No named specialist owns general build work. `--parent` = the specialist who dispatched. Sonnet: standard structured tasks |
+| Structured implementation · build · document production | ephemeral worker | `claude-opus-4-6` | No named specialist owns general build work. `--parent` = the specialist who dispatched. Operator roster 2026-08-03 (powerpoint-generation DV13): builders default Opus |
 | High-judgment synthesis · complex analysis · multi-source integration | ephemeral worker | `claude-opus-4-6` | Same as above but the work requires deeper judgment. Opus: complex reasoning justifies the cost |
 | Coordination · routing · status · envelope enforcement | orchestrator-agent | — (standing) | Standing agent; does not execute specialist work. No worker: the orchestrator routes, it does not produce deliverables |
 
@@ -55,13 +55,15 @@ requirement whenever the producer is a Claude worker.
 - **opus-agent and gpt5-agent** are in the live roster but do not appear in the routing matrix.
   They are not listed here because the table may not invent role ownership.
 
-## Model pin source (2026-07-27)
+## Model pin source (2026-08-03)
 
 | Agent | Config model | Runtime |
 |---|---|---|
-| orchestrator-agent | `claude-sonnet-4-6` | claude-code |
+| orchestrator-agent | `claude-opus-4-6` | claude-code |
 | research-agent | `claude-sonnet-4-6` | claude-code |
 | aim-agent | `claude-sonnet-4-6` | claude-code |
 | opus-agent | `claude-opus-4-6` | claude-code |
 | codex-review-agent | `gpt-5.5` | codex-app-server |
 | gpt5-agent | `gpt-5.5` | codex-app-server |
+
+Verify pins against `/home/node/control-plane/agents/*/config.json` at dispatch time — this table goes stale (it mis-routed G28's builder onto sonnet on 2026-08-03).
