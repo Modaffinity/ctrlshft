@@ -127,8 +127,13 @@ if op == 'seed':
     # and it is reported on every run rather than quietly applied.
     src, tree, raw, headlist, out = sys.argv[2:7]
 
+    # Case-folded, because this filesystem is case-insensitive and Codex is not
+    # fussy: `.CODEX/config.toml` was invisible to a case-sensitive filter while
+    # Codex opened it happily via the lowercase path. Folding is only half the
+    # fix — see the `nocodex` op, which asks the filesystem instead of believing
+    # this filter.
     def is_codex_cfg(p):
-        return '.codex' in p.split('/')
+        return '.codex' in [x.lower() for x in p.split('/')]
 
     allp = [p for p in read_z(raw) if os.path.lexists(os.path.join(src, p))]
     live = [p for p in allp if not is_codex_cfg(p)]
@@ -146,7 +151,7 @@ if op == 'seed':
         if '.git' in dirs:
             dirs.remove('.git')
         for d in list(dirs):
-            if d == '.codex':
+            if d.lower() == '.codex':
                 shutil.rmtree(os.path.join(root_dir, d), ignore_errors=True)
                 dirs.remove(d)
     with open(out, 'wb') as f:
@@ -224,6 +229,29 @@ elif op == 'stream':
         f.write('\n'.join(commands))
     print(f"SESSION_ID={session or ''}")
     print("STATUS=ok" if not problems else "STATUS=" + '; '.join(problems))
+
+elif op == 'nocodex':
+    # Ask the filesystem the same question Codex will ask it, instead of trusting
+    # the filter that was supposed to have removed the file. A case-sensitive
+    # filter believed it had stripped everything while `.CODEX/config.toml` sat
+    # in the clone, readable to Codex through the lowercase path, on a
+    # case-insensitive volume — and the report went out saying
+    # `codex_config_excluded: 0`. Found by the Task 5 review, cycle 4.
+    #
+    # os.path.isfile() resolves exactly the way Codex's open() will, so this is
+    # the same question and not a re-implementation of it. Any filter bug —
+    # casing, unicode normalisation, a symlink, a form nobody has thought of —
+    # surfaces here as a loud stop rather than a silent claim.
+    tree = sys.argv[2]
+    found = []
+    for root_dir, dirs, _ in os.walk(tree):
+        if '.git' in dirs:
+            dirs.remove('.git')
+        probe = os.path.join(root_dir, '.codex', 'config.toml')
+        if os.path.isfile(probe):
+            found.append(os.path.relpath(probe, tree))
+    print("ok" if not found
+          else "a project config is still readable in the clone at: " + ', '.join(sorted(found)[:5]))
 
 elif op == 'corroborate':
     # Does the run's own event stream support the report's claim that a suite ran?
@@ -349,6 +377,12 @@ seed_tree() {
   printf '%s' "$excluded" > "$RUN_SCRATCH/excluded-codex"
   [ "$excluded" -gt 0 ] && say "excluded $excluded file(s) under .codex/ from the clone — a repository's own Codex config can launch MCP servers outside the sandbox"
 
+  # Verified against the filesystem, not against the filter that just ran. The
+  # frontmatter is about to claim this stripping happened; the claim has to be
+  # demonstrable or it must not be made.
+  local nocodex; nocodex=$(_py nocodex "$tree")
+  [ "$nocodex" = ok ] || die "the .codex strip did not hold — $nocodex" $EX_UNTRUSTWORTHY
+
   if [ "$n" -gt 0 ]; then
     ( cd "$src" && tar -c --null -T "$RUN_SCRATCH/live.z" -f - ) | ( cd "$tree" && tar -x -f - ) \
       || die "could not copy the working tree into the disposable clone" $EX_ENV
@@ -427,8 +461,24 @@ gate_verdict() {
 # has ~96 config fields, so a blacklist reads as a fence while the rest walk
 # around it. Making caller text structurally unable to be a flag is the only
 # version of this that holds.
+# review runs in the operator's REAL repository, so nothing can be stripped from
+# it. Measured on codex 0.147.0: the `review` subcommand does not load the project
+# config layer — an [mcp_servers.*] entry that fires under `gate` does not fire
+# here. That is a version-dependent fact, not a guarantee, so its presence is
+# announced rather than assumed away, and the suite carries a live regression test
+# that would catch a future codex learning to load it.
+warn_project_config() {
+  local repo="$1"
+  [ -f "$repo/.codex/config.toml" ] || return 0
+  say "note: this repository has its own .codex/config.toml. review runs read-only"
+  say "and codex 0.147.0 does not load the project layer on this path — but gate"
+  say "would, which is why gate strips it. Re-check this on any codex upgrade."
+  return 0
+}
+
 run_review() {
   local repo="$1" scope_flag="$2" scope_val="$3" out="$4"
+  warn_project_config "$repo"
   # No caller text reaches this argv at all — main() refuses review instructions
   # outright, because codex has nowhere to put them. The only caller-controlled
   # element left is scope_val, whose shape is checked in the parser.
