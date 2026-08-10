@@ -91,7 +91,7 @@ EOF
 # ── the python side: JSON and hashing, where bash has no business ────────────
 _py() {
   python3 - "$@" <<'PYEOF'
-import sys, os, json, hashlib, stat
+import sys, os, json, hashlib, stat, shutil
 
 op = sys.argv[1]
 
@@ -109,8 +109,30 @@ if op == 'seed':
     # aborts the seed. A HEAD path missing from that list was deleted, staged or
     # not, and has to go from the clone too, or the gate reviews a file the
     # operator has already removed.
+    #
+    # 🛑 `.codex/` NEVER CROSSES INTO THE CLONE. Codex loads a PROJECT CONFIG
+    # LAYER from any `.codex/config.toml` between cwd and the repo root — its own
+    # help calls it "trusted-repo Codex settings such as sandbox, MCP, hooks,
+    # model". An `[mcp_servers.*]` entry there is launched by Codex's PARENT
+    # process, which is not sandboxed, so it runs with full user privileges no
+    # matter what sandbox_mode or the tmp exclusions say. Seeding the repo
+    # faithfully therefore handed the repository under test a way to run
+    # arbitrary commands: a planted MCP server wrote to $HOME while the run
+    # returned VERDICT: PASS and exit 0. No model cooperation, nothing in the
+    # event stream, nothing in the report. Found by the Task 5 independent
+    # review, cycle 3. There is no CLI flag or config key to disable the project
+    # layer — checked — so the only lever is the tree.
+    #
+    # This is the one deliberate hole in "the clone matches the working tree",
+    # and it is reported on every run rather than quietly applied.
     src, tree, raw, headlist, out = sys.argv[2:7]
-    live = [p for p in read_z(raw) if os.path.lexists(os.path.join(src, p))]
+
+    def is_codex_cfg(p):
+        return '.codex' in p.split('/')
+
+    allp = [p for p in read_z(raw) if os.path.lexists(os.path.join(src, p))]
+    live = [p for p in allp if not is_codex_cfg(p)]
+    excluded = len(allp) - len(live)
     liveset = set(live)
     removed = 0
     for p in read_z(headlist):
@@ -118,11 +140,20 @@ if op == 'seed':
             f = os.path.join(tree, p)
             if os.path.lexists(f):
                 os.remove(f); removed += 1
+    # Belt and braces: whatever the file lists said, no .codex directory survives
+    # in the clone — tracked, untracked, ignored or nested.
+    for root_dir, dirs, _ in os.walk(tree):
+        if '.git' in dirs:
+            dirs.remove('.git')
+        for d in list(dirs):
+            if d == '.codex':
+                shutil.rmtree(os.path.join(root_dir, d), ignore_errors=True)
+                dirs.remove(d)
     with open(out, 'wb') as f:
         f.write(b'\0'.join(x.encode() for x in live))
         if live:
             f.write(b'\0')
-    print(f"{len(live)} {removed}")
+    print(f"{len(live)} {removed} {excluded}")
 
 elif op == 'manifest':
     # path + mode + content hash. Symlinks hash their TARGET, not the file they
@@ -208,13 +239,14 @@ elif op == 'corroborate':
     s = suite.strip()
     if not s or s.lower() == 'none':
         print("the report claims a suite ran but names none"); sys.exit(0)
-    blob = '\n'.join(cmds)
-    if s in blob:
-        print("ok"); sys.exit(0)
-    # Forgiving fallback: the program name alone. Enough to catch a fabricated
-    # suite, loose enough not to fail on a lightly reworded command.
-    prog = s.split()[0]
-    print("ok" if prog and prog in blob
+    # Whitespace-normalised full-string match, and no program-name fallback: the
+    # prompt asks for the exact command, so accepting the program name alone let
+    # a fabricated SUITE corroborate itself against something incidental the
+    # agent ran while exploring. Be clear about what this does prove — a matching
+    # command ran — and what it does not: that the command was a real suite.
+    norm = lambda x: ' '.join(x.split())
+    blob = '\n'.join(norm(c) for c in cmds)
+    print("ok" if norm(s) in blob
           else f"the report names suite '{s}', but no command matching it appears "
                f"among the {len(cmds)} command(s) the run actually executed")
 
@@ -310,10 +342,12 @@ seed_tree() {
     || die "could not list the working tree" $EX_ENV
   git -C "$src" ls-tree -r -z --name-only "$head" > "$RUN_SCRATCH/head.z" \
     || die "could not list HEAD" $EX_ENV
-  local plan n
+  local plan n excluded
   plan=$(_py seed "$src" "$tree" "$RUN_SCRATCH/raw.z" "$RUN_SCRATCH/head.z" "$RUN_SCRATCH/live.z") \
     || die "could not resolve the working-tree file list" $EX_ENV
-  n="${plan%% *}"
+  n="${plan%% *}"; excluded="${plan##* }"
+  printf '%s' "$excluded" > "$RUN_SCRATCH/excluded-codex"
+  [ "$excluded" -gt 0 ] && say "excluded $excluded file(s) under .codex/ from the clone — a repository's own Codex config can launch MCP servers outside the sandbox"
 
   if [ "$n" -gt 0 ]; then
     ( cd "$src" && tar -c --null -T "$RUN_SCRATCH/live.z" -f - ) | ( cd "$tree" && tar -x -f - ) \
@@ -617,7 +651,9 @@ main() {
       printf 'verdict: %s\n' "$verdict"
       printf 'suite: %s\n' "${suite:-unstated}"
       printf 'files_carried: %s\n' "$seeded"
-      printf 'seed_fidelity: content, modes and symlinks asserted equal against the working tree; staged/unstaged split reproduced at path level; a partially staged file carries its WORKING-TREE content, so that one file'"'"'s index split is not reproduced; gitignored files deliberately not carried; submodules refused rather than partially seeded\n'
+      printf 'codex_config_excluded: %s\n' "$(cat "$RUN_SCRATCH/excluded-codex" 2>/dev/null || echo 0)"
+      printf 'seed_fidelity: content, modes and symlinks asserted equal against the working tree; staged/unstaged split reproduced at path level; a partially staged file carries its WORKING-TREE content, so that one file'"'"'s index split is not reproduced; gitignored files deliberately not carried; submodules refused rather than partially seeded; ANY .codex/ directory is stripped, because a project config layer can launch MCP servers outside the sandbox\n'
+      printf 'corroboration: the SUITE command was found among the commands this run actually executed. That proves a matching command ran; it does not prove the command was a real test suite\n'
       printf 'network: off\n'
     else
       printf 'scope: %s %s\n' "$scope_flag" "$scope_val"
