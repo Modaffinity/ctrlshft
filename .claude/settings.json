@@ -84,7 +84,8 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:api.github.com)",
-      "WebFetch(domain:docs.anthropic.com)"
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(ask-codex:*)"
     ],
     "deny": [
       "Bash(gh auth token:*)",
@@ -141,7 +142,10 @@
       "Read(*/secrets/.env*)",
       "Read(*/.env.secrets)",
       "Read(*/.env.secrets*)",
-      "Read(.env.secrets*)"
+      "Read(.env.secrets*)",
+      "Bash(/Applications/ChatGPT.app/Contents/Resources/codex:*)",
+      "Bash(*--dangerously-bypass-approvals-and-sandbox*)",
+      "Bash(*--dangerously-bypass-hook-trust*)"
     ]
   },
   "hooks": {
@@ -273,9 +277,21 @@
   "sandbox": {
     "enabled": true,
     "filesystem": {
-      "allowWrite": ["~/projects", "/tmp", "/private/tmp"],
-      "denyWrite": ["~/.ssh", "~/dotfiles/secrets", "~/.claude", "~/.config"],
-      "denyRead": ["~/.ssh", "~/dotfiles/secrets"]
+      "allowWrite": [
+        "~/projects",
+        "/tmp",
+        "/private/tmp"
+      ],
+      "denyWrite": [
+        "~/.ssh",
+        "~/dotfiles/secrets",
+        "~/.claude",
+        "~/.config"
+      ],
+      "denyRead": [
+        "~/.ssh",
+        "~/dotfiles/secrets"
+      ]
     },
     "network": {
       "allowedDomains": [

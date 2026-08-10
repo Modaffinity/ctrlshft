@@ -88,6 +88,20 @@ and the person who asked for containment will never know they did not get it.
 The one exception is the one where containment was never the point: free-form thinking-out-loud, no
 untrusted repository, nothing to contain. Then MCP was always the right tool and this does not apply.
 
+### Known refusals and their remedies
+
+Neither of these is a reason to fall back to MCP — both end with `ask-codex` running.
+
+- **Exit 5 · empty event stream · stderr `failed to initialize in-process app-server client:
+  Operation not permitted`** — the calling harness's command sandbox denied codex its own
+  `CODEX_HOME`/PATH-alias writes; the fenced run never started. Re-run the same command with the
+  harness sandbox bypassed: the wrapper's own policy files are the fence, so nothing is lost.
+  (Observed under Claude Code's bash sandbox, 2026-08-10.)
+- **Exit 4 naming `branch.*.vscode-merge-base`** — VS Code's merge editor writes that git config
+  key routinely, so this recurs on VS Code-managed repos. Run
+  `git config --unset-all branch.<name>.vscode-merge-base`, then retry; VS Code recreates the
+  key harmlessly when it next needs it.
+
 ## What the fence actually is
 
 The wrapper takes a **mode, never a sandbox**. Policy lives in `~/.codex-agent/*.config.toml`,

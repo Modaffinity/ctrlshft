@@ -312,10 +312,38 @@ for f in "$DOTFILES/hooks/"*.sh; do
 done
 green "  Hook scripts found: $_hooks"
 
-# Deploy settings.json from dotfiles (source of truth)
+# Deploy settings.json from dotfiles (source of truth for everything it names)
+#
+# MERGED, NOT COPIED — the same treatment step 7.5 already gives Gemini, and for
+# the same reason. Claude Code writes runtime-managed keys into this file that
+# dotfiles deliberately does not carry: `model` is the one that bites, because a
+# flat copy silently reverts the operator's chosen model on every bootstrap run.
+# That made this whole step unrunnable, which in turn blocked every deliverable
+# that has to reach ~/.claude/settings.json (codex-bridge CODEX-OL-02).
+#
+# Existing file FIRST, dotfiles second: `.[0] * .[1]` lets dotfiles win for every
+# key it defines, and leaves keys it does not define untouched. Deploying policy
+# still overwrites policy; it just no longer overwrites what it was never the
+# source of truth for.
 if [[ -f "$DOTFILES/.claude/settings.json" ]]; then
-    cp "$DOTFILES/.claude/settings.json" "$CLAUDE_DIR/settings.json"
-    green "  Deployed ~/.claude/settings.json from dotfiles"
+    if [[ -f "$CLAUDE_DIR/settings.json" ]] && command -v jq &>/dev/null; then
+        if jq -s '.[0] * .[1]' "$CLAUDE_DIR/settings.json" "$DOTFILES/.claude/settings.json" \
+             > "$CLAUDE_DIR/settings.json.tmp" 2>/dev/null; then
+            mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
+            green "  Merged dotfiles settings into ~/.claude/settings.json (runtime keys kept)"
+        else
+            # A failed merge must not fall through to a copy: that is the exact
+            # data loss this block exists to prevent.
+            rm -f "$CLAUDE_DIR/settings.json.tmp"
+            red "  Could not merge ~/.claude/settings.json — left unchanged"
+            _fail=1
+        fi
+    elif [[ -f "$CLAUDE_DIR/settings.json" ]]; then
+        yellow "  jq not found — leaving ~/.claude/settings.json unchanged rather than overwriting it"
+    else
+        cp "$DOTFILES/.claude/settings.json" "$CLAUDE_DIR/settings.json"
+        green "  Created ~/.claude/settings.json from dotfiles"
+    fi
 else
     red "  Missing $DOTFILES/.claude/settings.json — cannot deploy settings"
     _fail=1
