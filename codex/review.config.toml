@@ -1,0 +1,12 @@
+# Profile: review — Codex reads a diff and writes nothing.
+#
+# Invoked as `codex exec -p review review --uncommitted|--base <ref>|--commit <sha>`.
+# `codex review -p <profile>` is rejected by the CLI, so review policy only ever
+# travels through `codex exec` (spike A1, 2026-08-09).
+#
+# The policy is restated rather than inherited: this file is the unit the wrapper
+# names, so it has to be legible on its own and must not soften if the base
+# config is ever loosened.
+
+sandbox_mode = "read-only"
+approval_policy = "never"

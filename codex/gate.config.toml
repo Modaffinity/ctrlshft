@@ -1,0 +1,16 @@
+# Profile: gate — Codex runs the suite inside a disposable git worktree.
+#
+# workspace-write makes the *worktree* writable and nothing else. That is not an
+# assumption: from a worktree cwd under workspace-write, seatbelt refused a write
+# to an absolute path inside the real repo — the command failed AND the file did
+# not exist (spike A4, 2026-08-09). Both halves were checked, because a refusal
+# message alone only proves Codex said it failed.
+#
+# Network stays off. A test suite that genuinely needs the network turns this on
+# by an edit here — visible, reviewable, committed — never by a runtime flag.
+
+sandbox_mode = "workspace-write"
+approval_policy = "never"
+
+[sandbox_workspace_write]
+network_access = false

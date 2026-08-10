@@ -375,6 +375,38 @@ else
     yellow "  Codex not detected — skipping"
 fi
 
+# ── 7.7. Agent Codex home (fenced CODEX_HOME) ────────────────────────────────
+echo
+green "[7.7/13] Agent Codex home (~/.codex-agent)"
+CODEX_AGENT_SRC="$DOTFILES/codex"
+CODEX_AGENT_DIR="$HOME/.codex-agent"
+
+if [[ -d "$CODEX_AGENT_SRC" ]]; then
+    mkdir -p "$CODEX_AGENT_DIR"
+
+    # Copied, not symlinked: Codex writes session state into CODEX_HOME and
+    # appends project trust entries to config.toml. Neither may reach the repo.
+    _codex_cfgs=0
+    for _f in "$CODEX_AGENT_SRC"/*.toml; do
+        [[ -f "$_f" ]] || continue
+        cp "$_f" "$CODEX_AGENT_DIR/$(basename "$_f")"
+        _codex_cfgs=$(( _codex_cfgs + 1 ))
+    done
+    green "  Deployed $_codex_cfgs config file(s) to ~/.codex-agent/"
+
+    # auth.json is shared with the interactive home, never copied. Re-linked on
+    # every run: a token refresh can replace the symlink with a real file, which
+    # would silently fork the credential into a second location.
+    if [[ -f "$HOME/.codex/auth.json" ]]; then
+        ln -sfn "$HOME/.codex/auth.json" "$CODEX_AGENT_DIR/auth.json"
+        green "  Linked ~/.codex-agent/auth.json -> ~/.codex/auth.json"
+    else
+        yellow "  ~/.codex/auth.json missing — run 'codex login', then re-run"
+    fi
+else
+    yellow "  $CODEX_AGENT_SRC not found — skipping"
+fi
+
 # ── 8. Symlink ~/.copilot/skills/ ────────────────────────────────────────────
 echo
 green "[8/13] Copilot skills directory"

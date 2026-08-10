@@ -1,0 +1,27 @@
+# Agent CODEX_HOME — base config.
+#
+# Source of truth: ~/dotfiles/codex/. Deployed to ~/.codex-agent/ by bootstrap.sh
+# step 7.7. Never edit the deployed copy — bootstrap overwrites it.
+#
+# Why this home exists. The interactive home (~/.codex) sets
+# sandbox_mode = "workspace-write", so anything invoking Codex without naming a
+# sandbox writes wherever it happens to be standing. Agent-initiated Codex gets
+# this home instead, where the default is read-only and a mode has to be asked
+# for by name.
+#
+# This file deliberately declares no plugins, no MCP servers and no marketplaces.
+# The interactive home enables browser, chrome and computer-use; those reach past
+# the sandbox, and an agent-initiated Codex has no business holding them.
+#
+# Profiles layer on top of this file: `codex -p <name>` loads <name>.config.toml
+# from this directory (verified against codex-cli 0.147.0-alpha.1.2).
+
+# model and reasoning effort mirror ~/.codex/config.toml on purpose. The only
+# thing that should differ between the interactive home and this one is the
+# fence — left unset, model_reasoning_effort lands on "none" and the agent path
+# would quietly be the weaker of the two.
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+
+sandbox_mode = "read-only"
+approval_policy = "never"
