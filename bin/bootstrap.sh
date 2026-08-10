@@ -458,8 +458,14 @@ _install_cli() {
     fi
 }
 
+chmod +x "$DOTFILES/bin/ask-codex" 2>/dev/null || true
+
 _install_cli "$DOTFILES/bin/ctrl" "$LOCAL_BIN/ctrl" "ctrl → ~/.local/bin/ctrl"
 _install_cli "$DOTFILES/shft/shft" "$LOCAL_BIN/shft" "shft → ~/.local/bin/shft"
+# ask-codex reaches Codex through the fenced CODEX_HOME deployed at step 7.7. It
+# belongs on PATH because the permission rule that allows it, and denies bare
+# codex, matches command text — a wrapper nobody can type by name is not a route.
+_install_cli "$DOTFILES/bin/ask-codex" "$LOCAL_BIN/ask-codex" "ask-codex → ~/.local/bin/ask-codex"
 
 # ── 10. Wire up shell ─────────────────────────────────────────────────────────
 echo

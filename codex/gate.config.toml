@@ -8,9 +8,24 @@
 #
 # Network stays off. A test suite that genuinely needs the network turns this on
 # by an edit here — visible, reviewable, committed — never by a runtime flag.
+#
+# THE TWO EXCLUSIONS ARE THE FENCE, not tidiness. Left at their defaults,
+# workspace-write grants three roots, and the session header says so out loud:
+# `workspace-write [workdir, /tmp, $TMPDIR]`. Nothing in SPEC.md ever decided
+# that, and it bites hardest exactly where the wrapper works — ask-codex sites
+# its disposable clone in $TMPDIR, so without these keys a gate run could write
+# into other runs' trees, other sessions' scratch, and its own event stream.
+# With them, the header reads `workspace-write [workdir]` and nothing else.
+# Measured both ways: evidence/task-5-wrapper/01-gate-fence.log.
+#
+# A suite still gets scratch space: ask-codex points the child's TMPDIR at a
+# directory INSIDE the disposable clone, which stays writable as the workdir.
+# That was the open question these keys raised, and it was tested, not reasoned.
 
 sandbox_mode = "workspace-write"
 approval_policy = "never"
 
 [sandbox_workspace_write]
 network_access = false
+exclude_slash_tmp = true
+exclude_tmpdir_env_var = true

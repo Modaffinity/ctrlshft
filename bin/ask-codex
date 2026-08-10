@@ -1,0 +1,536 @@
+#!/usr/bin/env bash
+# ask-codex — reach OpenAI Codex from a Claude Code session, fenced.
+#
+# WHY THIS EXISTS. The Codex CLI on this Mac defaults to sandbox_mode =
+# "workspace-write", so anything invoking it without naming a sandbox writes
+# wherever it is standing. This wrapper takes a MODE and never a sandbox: policy
+# lives in ~/.codex-agent/<mode>.config.toml, so widening the fence means editing
+# dotfiles — visible, reviewable, committed — not passing a flag.
+#
+# THE TWO THINGS IT PROTECTS, and every rule below traces to one of them:
+#   1. the verdict is honest — nobody is told a run succeeded when it did not
+#   2. Codex is contained  — nothing it runs changes anything outside the tree
+#
+# NEVER BRANCH ON CODEX'S EXIT CODE. `codex exec` returned 0 on a run whose write
+# the sandbox refused — the same code as the run that succeeded (CODEX-OL-01).
+# Every verdict here is an artifact on disk: a file exists, is non-empty, and
+# says what it must. The exit code is not evidence and is never read.
+#
+# WHY A `git clone --shared` AND NOT A `git worktree`. A worktree's .git is a
+# pointer into the real repo, which sits outside the fence — so every git write
+# from inside is refused (`index.lock: Operation not permitted`, measured), and a
+# suite that touches git fails in a way that reads like a gate failure. A DEFAULT
+# `git clone` is worse: it HARDLINKS the object store, so `chmod u+w` plus one
+# write inside the disposable tree corrupts the operator's real repository —
+# path-legal, therefore invisible to seatbelt. Demonstrated: `git fsck` on the
+# source afterwards reports "object corrupt or missing". `--shared` uses an
+# alternates pointer instead: own .git, no hardlinks, nothing copied, git works.
+#
+# Spec: plans/bridge-v1/SPEC.md · Plan: plans/bridge-v1/PLAN.md (Task 5)
+# Source of truth: ~/dotfiles/bin/ask-codex. Deployed by bootstrap.sh step 9.5.
+
+set -uo pipefail
+
+# ── constants, deliberately not overridable from the environment ─────────────
+# CODEX_BIN is a literal. An env seam here would be a door in the fence: a
+# session allowed to run `ask-codex` but denied bare codex could point it at a
+# script that calls codex with --dangerously-bypass-approvals-and-sandbox, and
+# the permission rule — which matches command TEXT — would never see it.
+readonly CODEX_BIN="/Applications/ChatGPT.app/Contents/Resources/codex"
+readonly AGENT_HOME="$HOME/.codex-agent"
+readonly REPORT_NAME=".ask-codex-report.md"
+readonly POD_EVIDENCE="$HOME/Library/CloudStorage/Dropbox/LLM/cortexos-pods/hq/codex-bridge/evidence"
+readonly STALE_TREE_HOURS=24
+
+# Unconditional, never ${CODEX_HOME:-...}: an inherited value would put the run
+# back in the interactive home, where the default is workspace-write.
+export CODEX_HOME="$AGENT_HOME"
+
+# Exit codes are part of the contract — see usage().
+readonly EX_OK=0 EX_GATE_FAIL=1 EX_GATE_NOT_RUN=2 EX_USAGE=3 EX_ENV=4 EX_UNTRUSTWORTHY=5
+
+RUN_TREE="" RUN_SCRATCH=""
+
+say()  { printf 'ask-codex: %s\n' "$1" >&2; }
+die()  { printf 'ask-codex: %s\n' "$1" >&2; exit "${2:-$EX_ENV}"; }
+
+cleanup() {
+  # A tree left behind is a tree a later run could mistake for its own.
+  [ -n "$RUN_TREE" ] && [ -d "$RUN_TREE" ] && rm -rf "$RUN_TREE"
+  [ -n "$RUN_SCRATCH" ] && [ -d "$RUN_SCRATCH" ] && rm -rf "$RUN_SCRATCH"
+  return 0
+}
+trap cleanup EXIT INT TERM HUP
+
+usage() {
+  cat >&2 <<'EOF'
+ask-codex — a fenced call to OpenAI Codex. Takes a mode, never a sandbox.
+
+  ask-codex review [--uncommitted | --base <ref> | --commit <sha>] [instructions]
+        Codex reads a diff and writes nothing (profile: review, read-only).
+        Default scope is --uncommitted.
+
+  ask-codex gate [instructions]
+        Codex runs this repo's suite inside a disposable clone and files a
+        verdict (profile: gate, workspace-write confined to that clone).
+
+Both file evidence/codex-<mode>-<stamp>/ in the current repo, or in the
+codex-bridge pod when the repo has no evidence/ directory.
+
+Exit codes — the run's own outcome, never Codex's exit code:
+  0  completed (gate: VERDICT PASS)      3  usage error
+  1  gate: VERDICT FAIL, suite ran       4  environment or fence pre-flight failed
+  2  gate: VERDICT SUITE_NOT_RUN         5  run did not complete, or left no
+                                            trustworthy artifact
+EOF
+  exit $EX_USAGE
+}
+
+# ── the python side: JSON and hashing, where bash has no business ────────────
+_py() {
+  python3 - "$@" <<'PYEOF'
+import sys, os, json, hashlib, stat
+
+op = sys.argv[1]
+
+def read_z(p):
+    with open(p, 'rb') as f:
+        return [x.decode() for x in f.read().split(b'\0') if x]
+
+if op == 'seed':
+    # Two jobs, done here because both turn on exact path handling that shell
+    # quoting gets wrong: work out what the operator actually has, and delete
+    # from the fresh checkout anything they have since removed.
+    #
+    # `ls-files --cached` still names files deleted in the working tree, so the
+    # list is narrowed to what exists — otherwise a legitimate pending deletion
+    # aborts the seed. A HEAD path missing from that list was deleted, staged or
+    # not, and has to go from the clone too, or the gate reviews a file the
+    # operator has already removed.
+    src, tree, raw, headlist, out = sys.argv[2:7]
+    live = [p for p in read_z(raw) if os.path.lexists(os.path.join(src, p))]
+    liveset = set(live)
+    removed = 0
+    for p in read_z(headlist):
+        if p not in liveset:
+            f = os.path.join(tree, p)
+            if os.path.lexists(f):
+                os.remove(f); removed += 1
+    with open(out, 'wb') as f:
+        f.write(b'\0'.join(x.encode() for x in live))
+        if live:
+            f.write(b'\0')
+    print(f"{len(live)} {removed}")
+
+elif op == 'manifest':
+    # path + mode + content hash. Symlinks hash their TARGET, not the file they
+    # point at — a link retargeted during seeding must show up as a difference.
+    root, lst = sys.argv[2], sys.argv[3]
+    rows = []
+    for p in read_z(lst):
+        f = os.path.join(root, p)
+        if os.path.islink(f):
+            rows.append(f"{p}\tlink\t{os.readlink(f)}")
+        elif os.path.isfile(f):
+            h = hashlib.sha256(open(f, 'rb').read()).hexdigest()
+            m = oct(stat.S_IMODE(os.stat(f).st_mode))
+            rows.append(f"{p}\t{m}\t{h}")
+        else:
+            rows.append(f"{p}\tMISSING\t-")
+    print('\n'.join(sorted(rows)))
+
+elif op == 'stream':
+    # Validate the --json event stream and pull the two things the caller needs.
+    # This is the honesty check: a truncated stream, a failed turn or a run with
+    # no agent message must all read as failure, because every one of them can
+    # coexist with exit 0.
+    src, outdir = sys.argv[2], sys.argv[3]
+    problems, session, messages, terminal = [], None, [], None
+    try:
+        raw = open(src, 'rb').read().decode('utf-8', 'replace')
+    except OSError as e:
+        print(f"STATUS=no event stream on disk ({e})"); sys.exit(0)
+    lines = [l for l in raw.splitlines() if l.strip()]
+    if not lines:
+        print("STATUS=the event stream is empty — the run produced nothing"); sys.exit(0)
+    for i, l in enumerate(lines, 1):
+        try:
+            ev = json.loads(l)
+        except json.JSONDecodeError:
+            # A half-written last line means the process died mid-write.
+            problems.append(f"line {i} of {len(lines)} is not valid JSON"
+                            f"{' (stream truncated — the run was cut off)' if i == len(lines) else ''}")
+            continue
+        t = ev.get('type')
+        if t == 'thread.started':
+            session = ev.get('thread_id') or session
+        elif t in ('turn.completed', 'turn.failed'):
+            terminal = t
+            if t == 'turn.failed':
+                problems.append(f"codex reported turn.failed: {json.dumps(ev)[:300]}")
+        elif t == 'error':
+            problems.append(f"codex emitted an error event: {json.dumps(ev)[:300]}")
+        elif t == 'item.completed':
+            it = ev.get('item') or {}
+            if it.get('type') == 'agent_message' and (it.get('text') or '').strip():
+                messages.append(it['text'])
+    if terminal is None:
+        problems.append("no turn.completed event — the run never finished")
+    if session is None:
+        problems.append("no thread.started event carrying a session id")
+    if not messages:
+        problems.append("codex produced no agent message")
+    with open(os.path.join(outdir, 'agent-message.txt'), 'w') as f:
+        f.write(messages[-1] if messages else '')
+    print(f"SESSION_ID={session or ''}")
+    print("STATUS=ok" if not problems else "STATUS=" + '; '.join(problems))
+
+else:
+    sys.exit(f"unknown op {op}")
+PYEOF
+}
+
+# ── pre-flight: is the fence the thing we are about to claim it is? ──────────
+# Asserted, not assumed. If the deployed profile has been loosened, this wrapper
+# would otherwise go on printing a containment claim that is no longer true.
+preflight() {
+  local mode="$1" base="$AGENT_HOME/config.toml" prof="$AGENT_HOME/$1.config.toml"
+
+  command -v python3 >/dev/null 2>&1 || die "python3 not found — required to validate the event stream" $EX_ENV
+  command -v git     >/dev/null 2>&1 || die "git not found" $EX_ENV
+  [ -x "$CODEX_BIN" ] || die "codex not executable at $CODEX_BIN" $EX_ENV
+  [ -f "$base" ] || die "no base config at $base — run bootstrap.sh step 7.7" $EX_ENV
+  [ -f "$prof" ] || die "no $mode profile at $prof — run bootstrap.sh step 7.7" $EX_ENV
+  [ -e "$AGENT_HOME/auth.json" ] || die "no auth.json in $AGENT_HOME — run 'codex login', then bootstrap step 7.7" $EX_ENV
+
+  grep -qE '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"read-only"' "$base" \
+    || die "$base no longer defaults to read-only — refusing to run" $EX_ENV
+  ! grep -q 'danger-full-access' "$base" "$prof" \
+    || die "danger-full-access appears in the deployed config — refusing to run" $EX_ENV
+
+  if [ "$mode" = gate ]; then
+    grep -qE '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"workspace-write"' "$prof" \
+      || die "$prof is not workspace-write — gate cannot run" $EX_ENV
+    # Without these two, workspace-write also grants /tmp and $TMPDIR, and the
+    # containment this wrapper reports would be false. Measured, not read.
+    grep -qE '^[[:space:]]*exclude_slash_tmp[[:space:]]*=[[:space:]]*true' "$prof" \
+      || die "$prof is missing exclude_slash_tmp = true — /tmp would be writable" $EX_ENV
+    grep -qE '^[[:space:]]*exclude_tmpdir_env_var[[:space:]]*=[[:space:]]*true' "$prof" \
+      || die "$prof is missing exclude_tmpdir_env_var = true — \$TMPDIR would be writable" $EX_ENV
+  else
+    grep -qE '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"read-only"' "$prof" \
+      || die "$prof is not read-only — review must not be able to write" $EX_ENV
+  fi
+}
+
+# Remove trees a killed run could not clean up. Reported, never silent: a sweep
+# that quietly deletes is indistinguishable from one that does nothing.
+sweep_stale_trees() {
+  local n=0 d
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    rm -rf "$d" && n=$((n + 1))
+  done < <(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'ask-codex-tree-*' -type d \
+             -mmin +$((STALE_TREE_HOURS * 60)) 2>/dev/null)
+  [ "$n" -gt 0 ] && say "swept $n abandoned tree(s) older than ${STALE_TREE_HOURS}h"
+  return 0
+}
+
+# ── seeding: a disposable clone that matches the working tree, or a loud stop ─
+seed_tree() {
+  local src="$1" tree="$2" head="$3"
+
+  git -C "$src" ls-files --stage 2>/dev/null | grep -q '^160000' \
+    && die "this repository has submodules; gate does not seed them — refusing rather than gating a partial tree" $EX_ENV
+
+  git clone --shared --quiet --no-checkout "$src" "$tree" \
+    || die "could not clone $src into the disposable tree" $EX_ENV
+  git -C "$tree" remote remove origin >/dev/null 2>&1
+  git -C "$tree" cat-file -e "${head}^{commit}" 2>/dev/null \
+    || die "HEAD ($head) is not reachable from any ref — commit or branch it before gating" $EX_ENV
+  git -C "$tree" checkout --quiet --detach "$head" \
+    || die "could not check out $head in the disposable tree" $EX_ENV
+
+  # What the operator actually has: tracked files plus untracked-and-not-ignored.
+  # `git diff HEAD | git apply` — the obvious reading of the spec — drops
+  # untracked files silently, and a brand-new file is very often the thing most
+  # worth gating.
+  git -C "$src" ls-files -z --cached --others --exclude-standard > "$RUN_SCRATCH/raw.z" \
+    || die "could not list the working tree" $EX_ENV
+  git -C "$src" ls-tree -r -z --name-only "$head" > "$RUN_SCRATCH/head.z" \
+    || die "could not list HEAD" $EX_ENV
+  local plan n
+  plan=$(_py seed "$src" "$tree" "$RUN_SCRATCH/raw.z" "$RUN_SCRATCH/head.z" "$RUN_SCRATCH/live.z") \
+    || die "could not resolve the working-tree file list" $EX_ENV
+  n="${plan%% *}"
+
+  if [ "$n" -gt 0 ]; then
+    ( cd "$src" && tar -c --null -T "$RUN_SCRATCH/live.z" -f - ) | ( cd "$tree" && tar -x -f - ) \
+      || die "could not copy the working tree into the disposable clone" $EX_ENV
+  fi
+
+  # Reproduce the staged/unstaged split so `git status` reads the same inside.
+  local staged; staged=$(git -C "$src" diff --cached --name-only)
+  if [ -n "$staged" ]; then
+    printf '%s\n' "$staged" | tr '\n' '\0' | xargs -0 git -C "$tree" add -A -- 2>/dev/null \
+      || say "could not restage $(printf '%s\n' "$staged" | wc -l | tr -d ' ') path(s) in the clone; content is still exact"
+  fi
+  printf '%s' "$n"
+}
+
+# The assertion the pre-flight spike demanded: prove the tree matches, do not
+# assume it. Filed as evidence so a reviewer can check it instead of trusting it.
+assert_tree_matches() {
+  local src="$1" tree="$2" out="$3"
+  _py manifest "$src"  "$RUN_SCRATCH/live.z" > "$RUN_SCRATCH/m-src.txt"  || return 1
+  _py manifest "$tree" "$RUN_SCRATCH/live.z" > "$RUN_SCRATCH/m-tree.txt" || return 1
+  if ! diff -u "$RUN_SCRATCH/m-src.txt" "$RUN_SCRATCH/m-tree.txt" > "$RUN_SCRATCH/m-diff.txt"; then
+    cp "$RUN_SCRATCH/m-diff.txt" "$out/seed-mismatch.diff"
+    say "the disposable tree does NOT match the working tree — refusing to gate a tree you are not looking at"
+    head -40 "$RUN_SCRATCH/m-diff.txt" >&2
+    return 1
+  fi
+  cp "$RUN_SCRATCH/m-src.txt" "$out/seed-manifest.txt"
+  return 0
+}
+
+# Where the run gets filed. The nonce is not decoration: two runs starting in the
+# same second must not overwrite each other's record, and the loser of that race
+# would look like a run that never happened.
+new_evidence_dir() {
+  local mode="$1" repo="$2" root
+  if   [ -d "$repo/evidence" ] ; then root="$repo/evidence"
+  elif [ -d "$POD_EVIDENCE" ]  ; then root="$POD_EVIDENCE"
+  else return 1
+  fi
+  printf '%s/codex-%s-%s-%s' "$root" "$mode" "$(date -u +%Y%m%d-%H%M%SZ)" \
+    "$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"
+}
+
+# Reads the gate report's contract header, or refuses. Prints "VERDICT<TAB>SUITE".
+# A report the wrapper cannot read is not a soft problem: summarising it anyway is
+# precisely how a run that did nothing gets reported as a run that passed.
+gate_verdict() {
+  local rp="$1" body verdict suite
+  [ -f "$rp" ] || { say "codex filed no report at $(basename "$rp") — nothing to trust"; return 1; }
+  [ -s "$rp" ] || { say "the report at $(basename "$rp") is empty"; return 1; }
+  body=$(cat "$rp")
+  verdict=$(printf '%s\n' "$body" | sed -n '1s/^VERDICT:[[:space:]]*\([A-Z_]*\).*/\1/p')
+  suite=$(printf '%s\n' "$body"  | sed -n '2s/^SUITE:[[:space:]]*//p')
+  case "$verdict" in
+    PASS|FAIL|SUITE_NOT_RUN) printf '%s\t%s' "$verdict" "$suite" ;;
+    *) say "the report carries no verdict on its first line — refusing to summarise a run I cannot read"
+       return 1 ;;
+  esac
+}
+
+# ── modes ────────────────────────────────────────────────────────────────────
+run_review() {
+  local repo="$1" scope_flag="$2" scope_val="$3" extra="$4" out="$5"
+  local -a argv=("$CODEX_BIN" exec -p review --json)
+  argv+=(review)
+  case "$scope_flag" in
+    --uncommitted) argv+=(--uncommitted) ;;
+    --base)        argv+=(--base "$scope_val") ;;
+    --commit)      argv+=(--commit "$scope_val") ;;
+  esac
+  [ -n "$extra" ] && argv+=("$extra")
+
+  printf '%s\n' "${argv[*]}" > "$out/invocation.txt"
+  ( cd "$repo" && "${argv[@]}" </dev/null ) \
+    > "$RUN_SCRATCH/stream.jsonl" 2> "$RUN_SCRATCH/codex-stderr.log"
+  return 0
+}
+
+run_gate() {
+  local tree="$1" extra="$2" out="$3"
+  local prompt
+  prompt=$(cat <<EOF
+You are running inside a DISPOSABLE COPY of a git repository. Nothing you write
+here reaches the operator's real repository, and the copy is deleted when you
+finish — so work freely and do not tidy up.
+
+Do this, in order:
+1. Work out how this repository's test suite is run. Prefer what the repository
+   itself says: README, CONTRIBUTING, CLAUDE.md, AGENTS.md, Makefile,
+   package.json scripts, pyproject.toml, and so on.
+2. Run it.
+3. Write your report to ./$REPORT_NAME and to no other file.
+
+The network is OFF. A failure caused by that is a deliberate policy choice, not
+a defect in the code — say so plainly if it happens, and do not work around it.
+
+The report MUST begin with exactly these two lines, in this order:
+VERDICT: <PASS|FAIL|SUITE_NOT_RUN>
+SUITE: <the exact command you ran, or the word none>
+
+Use SUITE_NOT_RUN when no suite could be run at all — none exists, or it would
+not start. Never report PASS for a suite that did not run. After those two lines,
+write a short body: what ran, what failed, and the smallest change that would fix
+it. If nothing failed, say that plainly rather than finding something to say.
+EOF
+)
+  [ -n "$extra" ] && prompt="$prompt
+
+Additional instructions from the caller:
+$extra"
+
+  mkdir -p "$tree/.ask-codex-tmp"
+  local -a argv=("$CODEX_BIN" exec -p gate --json -C "$tree" -- "$prompt")
+  { printf '%s\n' "${argv[*]:0:9}"; printf '(prompt follows)\n%s\n' "$prompt"; } > "$out/invocation.txt"
+
+  # TMPDIR is redirected INTO the tree: the profile excludes the real $TMPDIR and
+  # /tmp from the writable roots, so a suite that needs scratch space still has
+  # it, and it lands inside the disposable copy where it belongs.
+  TMPDIR="$tree/.ask-codex-tmp" "${argv[@]}" </dev/null \
+    > "$RUN_SCRATCH/stream.jsonl" 2> "$RUN_SCRATCH/codex-stderr.log"
+  return 0
+}
+
+# ── main ─────────────────────────────────────────────────────────────────────
+main() {
+  [ $# -ge 1 ] || usage
+  local mode="$1"; shift
+  case "$mode" in
+    review|gate) ;;
+    -h|--help)   usage ;;
+    *) say "unknown mode '$mode' — expected 'review' or 'gate'"; usage ;;
+  esac
+
+  # Strict parsing. Everything not named here is refused rather than forwarded:
+  # a flag this wrapper passes through unread is a flag that can widen the fence.
+  local scope_flag="--uncommitted" scope_val="" extra=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --uncommitted)
+        [ "$mode" = review ] || { say "--uncommitted applies to review, not gate"; usage; }
+        scope_flag="--uncommitted"; scope_val=""; shift ;;
+      --base|--commit)
+        [ "$mode" = review ] || { say "$1 applies to review, not gate"; usage; }
+        [ $# -ge 2 ] || { say "$1 needs a value"; usage; }
+        scope_flag="$1"; scope_val="$2"; shift 2 ;;
+      -h|--help) usage ;;
+      --) shift; extra="${extra:+$extra }$*"; break ;;
+      -*)
+        say "refusing unknown option '$1'. ask-codex takes a mode, never a sandbox —"
+        say "policy lives in ~/.codex-agent/<mode>.config.toml, not on this command line."
+        usage ;;
+      *) extra="${extra:+$extra }$1"; shift ;;
+    esac
+  done
+
+  preflight "$mode"
+
+  local repo
+  repo=$(git rev-parse --show-toplevel 2>/dev/null) \
+    || die "not inside a git repository — both modes need one" $EX_ENV
+
+  # Evidence goes to this repo when it keeps evidence, otherwise to the pod whose
+  # standing job that is. Never nowhere: a run with no filed record is a run that
+  # cannot be disbelieved.
+  local out
+  out=$(new_evidence_dir "$mode" "$repo") \
+    || die "no evidence/ here and no codex-bridge pod at $POD_EVIDENCE — refusing to run unrecorded" $EX_ENV
+  mkdir -p "$out" || die "could not create $out" $EX_ENV
+
+  RUN_SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/ask-codex-run-XXXXXX") \
+    || die "could not create a scratch directory" $EX_ENV
+  sweep_stale_trees
+
+  local seeded=""
+  if [ "$mode" = gate ]; then
+    local head
+    head=$(git -C "$repo" rev-parse HEAD 2>/dev/null) \
+      || die "this repository has no commits — gate needs a HEAD to seed from" $EX_ENV
+    RUN_TREE=$(mktemp -d "${TMPDIR:-/tmp}/ask-codex-tree-XXXXXX") \
+      || die "could not create the disposable tree" $EX_ENV
+    say "seeding a disposable clone of $(basename "$repo") at $RUN_TREE"
+    seeded=$(seed_tree "$repo" "$RUN_TREE" "$head") || exit $?
+    assert_tree_matches "$repo" "$RUN_TREE" "$out" \
+      || die "seed assertion failed; the mismatch is at $out/seed-mismatch.diff" $EX_UNTRUSTWORTHY
+    say "$seeded file(s) carried in; tree matches the working tree"
+    [ -e "$RUN_TREE/$REPORT_NAME" ] \
+      && die "$REPORT_NAME already exists in this repository — rename it; the wrapper cannot tell a stale report from a fresh one" $EX_ENV
+    run_gate "$RUN_TREE" "$extra" "$out"
+  else
+    run_review "$repo" "$scope_flag" "$scope_val" "$extra" "$out"
+  fi
+
+  # ── judge the artifacts, never the exit code ───────────────────────────────
+  cp "$RUN_SCRATCH/stream.jsonl"     "$out/stream.jsonl"     2>/dev/null
+  cp "$RUN_SCRATCH/codex-stderr.log" "$out/codex-stderr.log" 2>/dev/null
+
+  local session="" status=""
+  while IFS= read -r line; do
+    case "$line" in
+      SESSION_ID=*) session="${line#SESSION_ID=}" ;;
+      STATUS=*)     status="${line#STATUS=}" ;;
+    esac
+  done < <(_py stream "$RUN_SCRATCH/stream.jsonl" "$RUN_SCRATCH")
+
+  if [ "$status" != "ok" ]; then
+    say "the run did not complete cleanly: ${status:-the event stream could not be read}"
+    say "evidence kept at $out"
+    exit $EX_UNTRUSTWORTHY
+  fi
+
+  local body verdict="" suite="" parsed
+  if [ "$mode" = gate ]; then
+    parsed=$(gate_verdict "$RUN_TREE/$REPORT_NAME") \
+      || { say "evidence kept at $out"; exit $EX_UNTRUSTWORTHY; }
+    verdict="${parsed%%	*}"; suite="${parsed#*	}"
+    body=$(cat "$RUN_TREE/$REPORT_NAME")
+  else
+    body=$(cat "$RUN_SCRATCH/agent-message.txt")
+    [ -n "${body//[[:space:]]/}" ] || { say "the review came back empty"; say "evidence kept at $out"; exit $EX_UNTRUSTWORTHY; }
+  fi
+
+  # Frontmatter is stamped HERE, by the wrapper — attribution applied by the
+  # thing being attributed is not attribution.
+  {
+    printf -- '---\n'
+    printf 'surface: codex\n'
+    printf 'date: %s\n' "$(date -u +%Y-%m-%d)"
+    printf 'mode: %s\n' "$mode"
+    printf 'profile: %s\n' "$mode"
+    printf 'repo: %s\n' "$repo"
+    if [ "$mode" = gate ]; then
+      printf 'verdict: %s\n' "$verdict"
+      printf 'suite: %s\n' "${suite:-unstated}"
+      printf 'files_carried: %s\n' "$seeded"
+      printf 'seed_fidelity: content, modes and symlinks asserted equal against the working tree; staged/unstaged split reproduced at path level; a partially staged file carries its WORKING-TREE content, so that one file'"'"'s index split is not reproduced; gitignored files deliberately not carried; submodules refused rather than partially seeded\n'
+      printf 'network: off\n'
+    else
+      printf 'scope: %s %s\n' "$scope_flag" "$scope_val"
+    fi
+    printf 'codex_session_id: %s\n' "$session"
+    printf 'generated_by: ask-codex\n'
+    printf -- '---\n\n'
+    printf '# Codex %s report\n\n' "$mode"
+    printf '%s\n' "$body"
+  } > "$out/REPORT.md"
+
+  printf '%s\n' "$body"
+  printf '\n---\n'
+  if [ "$mode" = gate ]; then
+    printf 'ask-codex: mode=gate verdict=%s suite=%s\n' "$verdict" "${suite:-unstated}"
+  else
+    printf 'ask-codex: mode=review scope=%s %s\n' "$scope_flag" "$scope_val"
+  fi
+  printf 'ask-codex: evidence=%s\n' "$out"
+  printf 'SESSION_ID=%s\n' "$session"
+  printf 'ask-codex: follow up with — CODEX_HOME=%s %s exec -p %s resume %s\n' \
+    "$AGENT_HOME" "$CODEX_BIN" "$mode" "$session"
+
+  case "$verdict" in
+    FAIL)          exit $EX_GATE_FAIL ;;
+    SUITE_NOT_RUN) exit $EX_GATE_NOT_RUN ;;
+    *)             exit $EX_OK ;;
+  esac
+}
+
+# Sourcing the file gives the test suite its functions without running anything.
+# This is not an env seam: it cannot widen the fence, only decline to act.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi
