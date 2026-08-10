@@ -318,6 +318,138 @@ elif op == 'corroborate':
                f"begins with it (checked {len(cmds)} command(s); a suite that is "
                f"only mentioned inside another command does not count)")
 
+elif op == 'gitconfig':
+    # A repository's OWN .git/config names commands git executes: core.fsmonitor,
+    # core.pager, core.hooksPath, filter.*.clean, alias.*, remote.*.uploadpack,
+    # include.path pulling in another file entirely. seed_tree runs git straight at
+    # the untrusted source, so those fire in THIS process, on the host, before
+    # Codex or any sandbox exists. `ask-codex gate` in a repo carrying
+    # core.fsmonitor wrote a file into /tmp and then exited 4 — an environment
+    # error, the wrapper's way of saying the run never happened, while the command
+    # had already run. Found by the Task 5 review, cycle 6.
+    #
+    # Screened as a FILE. Never `git config --list`: that is itself a git
+    # invocation in the repository under test, which is the thing being guarded.
+    #
+    # ALLOWLIST, NOT BLOCKLIST. Naming core.fsmonitor and its neighbours closes the
+    # keys someone happened to think of; git has hundreds and gains more. The keys
+    # git itself writes into a repo config are few and dull, so anything else is a
+    # loud refusal — the same choice this wrapper already makes for submodules and
+    # for a stale report.
+    INERT = {
+        'core.repositoryformatversion', 'core.filemode', 'core.bare', 'core.symlinks',
+        'core.logallrefupdates', 'core.ignorecase', 'core.precomposeunicode',
+        'core.quotepath', 'core.autocrlf', 'core.eol', 'core.safecrlf', 'core.abbrev',
+        'core.commitgraph', 'core.untrackedcache', 'core.sparsecheckout',
+        'core.sparsecheckoutcone', 'core.compression', 'core.bigfilethreshold',
+        'extensions.objectformat', 'extensions.worktreeconfig', 'extensions.refstorage',
+        'extensions.preciousobjects',
+        'remote.*.url', 'remote.*.fetch', 'remote.*.push', 'remote.*.pushurl',
+        'remote.*.mirror', 'remote.*.tagopt', 'remote.*.prune',
+        'remote.*.partialclonefilter', 'remote.*.promisor',
+        'branch.*.remote', 'branch.*.merge', 'branch.*.rebase', 'branch.*.pushremote',
+        'branch.*.description',
+        'submodule.active', 'submodule.*.url', 'submodule.*.active',
+        'submodule.*.branch', 'submodule.*.ignore',
+        'user.name', 'user.email', 'user.signingkey',
+        'push.default', 'push.followtags', 'push.autosetupremote',
+        'pull.rebase', 'pull.ff', 'fetch.prune', 'fetch.prunetags',
+        'init.defaultbranch', 'gc.auto', 'gc.autopacklimit', 'log.decorate',
+        'status.showuntrackedfiles', 'commit.gpgsign', 'tag.gpgsign',
+        # core.hooksPath IS command-valued, and it is here anyway — because it is
+        # not reachable from the git calls this wrapper makes. Measured, not
+        # argued: with hooksPath pointing at executable pre-commit, post-commit,
+        # post-checkout, post-index-change, fsmonitor-watchman, pre-auto-gc,
+        # reference-transaction and post-applypatch hooks, every git call this
+        # wrapper runs against the source — ls-files, ls-tree, diff --cached,
+        # rev-parse, clone --shared — fired exactly none of them. Refusing it
+        # instead would make the wrapper unable to gate this project's own pod,
+        # which installs a pre-commit binary gate that way.
+        #
+        # THE ASSUMPTION IS THE CALL SET, so the suite pins it: a hooksPath fixture
+        # asserts no hook fires during a seed. Add a git call to the source that
+        # commits, checks out or merges and that test fails, which is the point.
+        'core.hookspath',
+    }
+
+    def parse(path):
+        # git's config grammar: [section], [section "sub"], key = value. Section and
+        # key fold to lower case; the subsection does not, so it is replaced by '*'
+        # — the allowlist cares which key it is, never what it was named.
+        out, sec = [], None
+        try:
+            text = open(path, 'r', errors='replace').read()
+        except OSError:
+            return out
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line[0] in '#;':
+                continue
+            if line.startswith('['):
+                body = line[1:line.index(']')] if ']' in line else line[1:]
+                if '"' in body:
+                    head = body[:body.index('"')].strip().lower()
+                    sec = f"{head}.*"
+                else:
+                    sec = '.'.join(p.lower() for p in body.strip().split('.'))
+                continue
+            if '=' in line and sec is not None:
+                key = line.split('=', 1)[0].strip().lower()
+                out.append((f"{sec}.{key}", os.path.basename(path)))
+            elif sec is not None and line:
+                out.append((f"{sec}.{line.split()[0].strip().lower()}", os.path.basename(path)))
+        return out
+
+    start = os.path.abspath(sys.argv[2])
+    d, gitpath = start, None
+    while True:
+        cand = os.path.join(d, '.git')
+        if os.path.exists(cand):
+            gitpath = cand
+            break
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    if gitpath is None:
+        print("STATUS=ok")           # not a repo; the git check in main() says so
+        sys.exit(0)
+
+    if os.path.isdir(gitpath):
+        gitdir = commondir = gitpath
+    else:
+        # A linked worktree: .git is a file naming the real gitdir, and the shared
+        # config lives in the common dir. Both are screened, or the escape simply
+        # moves one file over.
+        ref = open(gitpath, errors='replace').read().strip()
+        gitdir = ref[len('gitdir:'):].strip() if ref.startswith('gitdir:') else ''
+        if gitdir and not os.path.isabs(gitdir):
+            gitdir = os.path.normpath(os.path.join(d, gitdir))
+        commondir = gitdir
+        cf = os.path.join(gitdir, 'commondir') if gitdir else ''
+        if cf and os.path.isfile(cf):
+            c = open(cf, errors='replace').read().strip()
+            commondir = c if os.path.isabs(c) else os.path.normpath(os.path.join(gitdir, c))
+
+    bad, seen = [], set()
+    for f in (os.path.join(gitdir, 'config'), os.path.join(gitdir, 'config.worktree'),
+              os.path.join(commondir, 'config'), os.path.join(commondir, 'config.worktree')):
+        if not f or f in seen or not os.path.isfile(f):
+            continue
+        seen.add(f)
+        for name, where in parse(f):
+            if name not in INERT:
+                bad.append(f"{name} (in {where})")
+    if bad:
+        uniq = sorted(set(bad))
+        print("STATUS=this repository's git config sets " + ', '.join(uniq[:6])
+              + (f" and {len(uniq) - 6} more" if len(uniq) > 6 else '')
+              + ". git executes some config values as commands, and this wrapper runs"
+                " git in the repository before any sandbox exists. Remove the setting,"
+                " or gate a copy that does not carry it.")
+    else:
+        print("STATUS=ok")
+
 else:
     sys.exit(f"unknown op {op}")
 PYEOF
@@ -646,6 +778,17 @@ main() {
   fi
 
   preflight "$mode"
+
+  # BEFORE the first git command touches this repository. git executes some config
+  # values — core.fsmonitor and friends — and every git call below runs unsandboxed
+  # in the operator's own process, so a hostile repo owns this machine before Codex
+  # is ever launched. Screened from the file, because `git config --list` would be
+  # the very invocation being guarded against.
+  local gitcfg
+  gitcfg=$(_py gitconfig "$PWD") \
+    || die "could not read this repository's git config" $EX_ENV
+  gitcfg="${gitcfg#STATUS=}"
+  [ "$gitcfg" = ok ] || die "$gitcfg" $EX_ENV
 
   local repo
   repo=$(git rev-parse --show-toplevel 2>/dev/null) \
