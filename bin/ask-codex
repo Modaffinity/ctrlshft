@@ -349,49 +349,97 @@ elif op == 'materialise':
     # symlink pointing out of the tree is the obvious way to smuggle $HOME into
     # a "scoped" run, so links are copied as their own target only when that
     # target is still inside the repo, and refused otherwise.
-    repo, dest = os.path.realpath(sys.argv[2]), sys.argv[3]
-    limit = int(sys.argv[4])
-    rels, files, total, refused = sys.argv[5:], 0, 0, []
+    # 🛑 LEXICAL PATH IN, RESOLVED PATH READ. A file is placed where the CALLER
+    # NAMED IT, and its bytes come from wherever the link resolved. Writing the
+    # resolved path instead — which the first version did — meant
+    # `scoped docs/link.md` produced `private/secret.md` and no `docs/link.md`
+    # at all: the model saw a path the caller never asked about and could not
+    # see the one they did. Found by `ask-codex blind` reviewing this very hunk.
+    #
+    # EXCLUSIONS AND OMISSIONS ARE REPORTED, NEVER SILENT. `.codex/` is dropped
+    # for the reason gate drops it (a project config layer can launch MCP
+    # servers outside the sandbox) and the rest are noise — but a caller who
+    # named a directory and silently did not get part of it is being told about
+    # a different set of files than the one they asked about, which is this
+    # project's recurring defect, not a tidiness question.
+    SKIP_DIRS = ('.git', 'node_modules', '__pycache__')
+    repo, dest, scratch = os.path.realpath(sys.argv[2]), sys.argv[3], sys.argv[4]
+    limit = int(sys.argv[5])
+    rels, refused, omitted = sys.argv[6:], [], []
+    plan = {}   # destination-relative path -> source path to read. Deduplicated
+                # by destination, so naming a file twice, or a directory and one
+                # of its children, cannot double-count against the byte quota.
+
+    def inside(p):
+        return p == repo or p.startswith(repo + os.sep)
+
+    def consider(lex, src):
+        # lex: path as the caller would name it. src: what to actually read.
+        if os.path.islink(src):
+            tgt = os.path.realpath(src)
+            if not inside(tgt):
+                refused.append(lex + ' (symlink out of the repository)'); return
+            if os.path.isdir(tgt):
+                # Traversing it while preserving the alias is possible but needs
+                # cycle detection; refusing is honest and the caller can name
+                # the real directory. What is NOT acceptable is os.walk's
+                # default, which lists it and silently descends into nothing.
+                refused.append(lex + ' (symlink to a directory — name its target instead)'); return
+            src = tgt
+        if not os.path.isfile(src):
+            return
+        plan[lex] = src
 
     for rel in rels:
         src = os.path.realpath(os.path.join(repo, rel))
-        if src != repo and not src.startswith(repo + os.sep):
-            refused.append('%s (resolves outside the repository)' % rel)
-            continue
+        if not inside(src):
+            refused.append('%s (resolves outside the repository)' % rel); continue
         if not os.path.exists(src):
-            refused.append('%s (no such path)' % rel)
+            refused.append('%s (no such path)' % rel); continue
+        if os.path.isfile(src) or os.path.islink(src):
+            consider(os.path.relpath(os.path.join(repo, rel), repo),
+                     os.path.join(repo, rel))
             continue
-        walk = ([(os.path.dirname(src), [], [os.path.basename(src)])]
-                if os.path.isfile(src) else os.walk(src))
-        for root, dirs, names in walk:
-            dirs[:] = [d for d in dirs
-                       if d not in ('.git', 'node_modules', '__pycache__')
-                       and d.lower() != '.codex']
+        for root, dirs, names in os.walk(src):
+            for d in list(dirs):
+                full = os.path.join(root, d)
+                if d in SKIP_DIRS or d.lower() == '.codex':
+                    omitted.append(os.path.relpath(full, repo))
+                    dirs.remove(d); continue
+                # os.walk lists a symlinked directory here and then, with
+                # followlinks=False, descends into NOTHING — so its contents
+                # vanish from a tree the caller asked for, with no error. The
+                # first version inherited exactly that. Refuse it by name.
+                if os.path.islink(full):
+                    refused.append(os.path.relpath(full, repo)
+                                   + ' (symlink to a directory inside a path you named'
+                                     ' — name its target instead)')
+                    dirs.remove(d); continue
             for n in names:
                 full = os.path.join(root, n)
-                if os.path.islink(full):
-                    tgt = os.path.realpath(full)
-                    if not tgt.startswith(repo + os.sep):
-                        refused.append(os.path.relpath(full, repo) + ' (symlink out of the repository)')
-                        continue
-                    full = tgt
-                if not os.path.isfile(full):
-                    continue
-                sz = os.path.getsize(full)
-                if total + sz > limit:
-                    print('TOOBIG %d %d' % (total + sz, limit)); sys.exit(0)
-                out = os.path.join(dest, os.path.relpath(full, repo))
-                os.makedirs(os.path.dirname(out), exist_ok=True)
-                shutil.copy2(full, out)
-                files += 1; total += sz
+                consider(os.path.relpath(full, repo), full)
 
     if refused:
         # Never silently: a path the caller named and did not get is the
         # difference between a scoped answer and an answer about something else.
         print('REFUSED ' + ' | '.join(refused[:6])); sys.exit(0)
-    if files == 0:
+
+    total = 0
+    for lex, src in plan.items():
+        total += os.path.getsize(src)
+    if total > limit:
+        print('TOOBIG %d %d' % (total, limit)); sys.exit(0)
+    for lex, src in plan.items():
+        out = os.path.join(dest, lex)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        shutil.copy2(src, out)
+
+    if not plan:
         print('EMPTY'); sys.exit(0)
-    print('OK %d %d' % (files, total))
+    if omitted:
+        with open(os.path.join(scratch, 'omitted.txt'), 'w') as fh:
+            fh.write('\n'.join(sorted(set(omitted))) + '\n')
+    print('OK %d %d %d' % (len(plan), total, len(set(omitted))))
 
 elif op == 'blinddiff':
     # Assemble the WHOLE change as text, for a run that will see nothing else.
@@ -998,7 +1046,7 @@ main() {
   # Strict parsing. Everything not named here is refused rather than forwarded:
   # a flag this wrapper passes through unread is a flag that can widen the fence.
   local scope_flag="--uncommitted" scope_val="" extra=""
-  local blind_lines="" blind_binaries="" scoped_files="" scoped_bytes=""
+  local blind_lines="" blind_binaries="" scoped_files="" scoped_bytes="" scoped_omitted=""
   local -a paths=()
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -1132,7 +1180,7 @@ main() {
     RUN_TREE=$(mktemp -d "${TMPDIR:-/tmp}/ask-codex-scoped-XXXXXX") \
       || die "could not create the scoped directory" $EX_ENV
     local mstat
-    mstat=$(_py materialise "$repo" "$RUN_TREE" 8000000 "${paths[@]}") \
+    mstat=$(_py materialise "$repo" "$RUN_TREE" "$RUN_SCRATCH" 8000000 "${paths[@]}") \
       || die "could not copy the named paths" $EX_ENV
     case "$mstat" in
       EMPTY)   die "none of the named paths held a readable file" $EX_USAGE ;;
@@ -1144,7 +1192,9 @@ main() {
                 die "the named paths are $2 bytes, over the $3 byte limit — name fewer" $EX_USAGE ;;
     esac
     set -- $mstat
-    scoped_files="$2"; scoped_bytes="$3"
+    scoped_files="$2"; scoped_bytes="$3"; scoped_omitted="${4:-0}"
+    [ "$scoped_omitted" != 0 ] \
+      && say "note: $scoped_omitted directory(ies) inside what you named were not copied (.git, node_modules, __pycache__, .codex) — listed in the report"
     printf '%s\n' "${paths[@]}" > "$out/scoped-paths.txt"
     ( cd "$RUN_TREE" && find . -type f | sed 's|^\./||' | sort ) > "$out/scoped-manifest.txt"
     say "$scoped_files file(s), $scoped_bytes bytes copied in; nothing else in $(basename "$repo") is readable"
@@ -1224,6 +1274,8 @@ main() {
       printf 'reach: only the files listed in scoped-manifest.txt, as copies; the repository was never readable\n'
       printf 'files_copied: %s\n' "$scoped_files"
       printf 'bytes_copied: %s\n' "$scoped_bytes"
+      printf 'directories_omitted: %s%s\n' "$scoped_omitted" \
+        "$([ "$scoped_omitted" != 0 ] && printf ' — %s' "$(tr '\n' ' ' < "$RUN_SCRATCH/omitted.txt" 2>/dev/null)")"
       printf 'paths_requested: %s\n' "$(tr '\n' ' ' < "$out/scoped-paths.txt")"
       printf 'network: off\n'
     fi
