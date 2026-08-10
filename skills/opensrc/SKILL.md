@@ -48,6 +48,18 @@ opensrc path zod --cwd /path/to/project
 
 For PyPI and crates.io, explicit versions or latest are used. For repos, use `@ref` or `#ref` to pin a branch, tag, or commit.
 
+**Caveat — repo caching is keyed by repo name, not by ref (observed opensrc 0.7.3):** if a repo was already
+cached under one ref (e.g. an unpinned `owner/repo` fetch defaulting to the branch tip), a later
+`opensrc path owner/repo@<specific-sha>` can silently print a path whose **content matches the old cached ref,
+not the requested SHA** — no error, no warning. This matters for any task diffing two exact commits (e.g.
+"what changed between our pinned version and upstream HEAD"). **Always verify** before trusting the result:
+`cmp` or `diff` a file you independently know should differ between the two refs (or a known-content file like
+`package.json`/`CHANGELOG.md`) before relying on the fetched tree. If it's wrong, don't fight the cache —
+`opensrc remove owner/repo` (this clears the whole repo entry, not per-ref) then bypass opensrc entirely for
+pinned-commit diffing: resolve full 40-char SHAs via `GET api.github.com/repos/{owner}/{repo}/commits/{ref}`,
+then `git fetch --depth 1 origin <full-sha>:refs/heads/<label>` into a scratch repo and `git diff` the two refs
+directly — this is reliable where `opensrc path @<sha>` was not.
+
 ## Managing the Cache
 
 Source is cached globally at `~/.opensrc/` (override with `OPENSRC_HOME`).
