@@ -88,6 +88,12 @@ ask-codex — a fenced call to OpenAI Codex. Takes a mode, never a sandbox.
         diff; in exchange, a repository cannot steer it, seed it, or feed it a
         previous review as if it were a finding.
 
+  ask-codex scoped <path>... [-- <question>]
+        Codex sees COPIES of exactly the paths you name, in an otherwise empty
+        directory, and nothing else in the repository (profile: blind). Use it
+        for "read these docs", "look at this package". Paths that resolve
+        outside the repo, and symlinks that leave it, are refused by name.
+
   ask-codex review [--uncommitted | --base <ref> | --commit <sha>]
         Codex reads a diff and writes nothing (profile: review, read-only).
         Default scope is --uncommitted. Takes no free-text instructions —
@@ -328,6 +334,65 @@ elif op == 'corroborate':
                f"begins with it (checked {len(cmds)} command(s); a suite that is "
                f"only mentioned inside another command does not count)")
 
+elif op == 'materialise':
+    # `scoped` works by PLACING files, never by granting access to them.
+    #
+    # 🛑 THE REASON IS MEASURED, NOT STYLISTIC. A permissions profile cannot
+    # express "only this": a deny cannot be re-opened by a narrower read in
+    # either order, so the only rule shape that works is denying what you do not
+    # want — a blocklist, which fails open on whatever nobody enumerated. Under
+    # "a read grant is an egress grant" that is an exfiltration path, not a
+    # scoping miss. Copying the wanted subset into an empty directory is an
+    # allowlist by construction and needs no rules at all.
+    #
+    # Every path is resolved and re-checked against the repository root. A
+    # symlink pointing out of the tree is the obvious way to smuggle $HOME into
+    # a "scoped" run, so links are copied as their own target only when that
+    # target is still inside the repo, and refused otherwise.
+    repo, dest = os.path.realpath(sys.argv[2]), sys.argv[3]
+    limit = int(sys.argv[4])
+    rels, files, total, refused = sys.argv[5:], 0, 0, []
+
+    for rel in rels:
+        src = os.path.realpath(os.path.join(repo, rel))
+        if src != repo and not src.startswith(repo + os.sep):
+            refused.append('%s (resolves outside the repository)' % rel)
+            continue
+        if not os.path.exists(src):
+            refused.append('%s (no such path)' % rel)
+            continue
+        walk = ([(os.path.dirname(src), [], [os.path.basename(src)])]
+                if os.path.isfile(src) else os.walk(src))
+        for root, dirs, names in walk:
+            dirs[:] = [d for d in dirs
+                       if d not in ('.git', 'node_modules', '__pycache__')
+                       and d.lower() != '.codex']
+            for n in names:
+                full = os.path.join(root, n)
+                if os.path.islink(full):
+                    tgt = os.path.realpath(full)
+                    if not tgt.startswith(repo + os.sep):
+                        refused.append(os.path.relpath(full, repo) + ' (symlink out of the repository)')
+                        continue
+                    full = tgt
+                if not os.path.isfile(full):
+                    continue
+                sz = os.path.getsize(full)
+                if total + sz > limit:
+                    print('TOOBIG %d %d' % (total + sz, limit)); sys.exit(0)
+                out = os.path.join(dest, os.path.relpath(full, repo))
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+                shutil.copy2(full, out)
+                files += 1; total += sz
+
+    if refused:
+        # Never silently: a path the caller named and did not get is the
+        # difference between a scoped answer and an answer about something else.
+        print('REFUSED ' + ' | '.join(refused[:6])); sys.exit(0)
+    if files == 0:
+        print('EMPTY'); sys.exit(0)
+    print('OK %d %d' % (files, total))
+
 elif op == 'blinddiff':
     # Assemble the WHOLE change as text, for a run that will see nothing else.
     #
@@ -551,14 +616,20 @@ PYEOF
 # ── pre-flight: is the fence the thing we are about to claim it is? ──────────
 # Asserted, not assumed. If the deployed profile has been loosened, this wrapper
 # would otherwise go on printing a containment claim that is no longer true.
+# The profile a mode runs under. Usually its own name; `scoped` deliberately
+# shares blind's, because its containment is the empty directory rather than any
+# rule, and a second identical file would be a second thing to keep in step.
+profile_for() { case "$1" in scoped) printf 'blind' ;; *) printf '%s' "$1" ;; esac; }
+
 preflight() {
-  local mode="$1" base="$AGENT_HOME/config.toml" prof="$AGENT_HOME/$1.config.toml"
+  local mode="$1" base="$AGENT_HOME/config.toml"
+  local prof="$AGENT_HOME/$(profile_for "$1").config.toml"
 
   command -v python3 >/dev/null 2>&1 || die "python3 not found — required to validate the event stream" $EX_ENV
   command -v git     >/dev/null 2>&1 || die "git not found" $EX_ENV
   [ -x "$CODEX_BIN" ] || die "codex not executable at $CODEX_BIN" $EX_ENV
   [ -f "$base" ] || die "no base config at $base — run bootstrap.sh step 7.7" $EX_ENV
-  [ -f "$prof" ] || die "no $mode profile at $prof — run bootstrap.sh step 7.7" $EX_ENV
+  [ -f "$prof" ] || die "no $(profile_for "$mode") profile at $prof — run bootstrap.sh step 7.7" $EX_ENV
   [ -e "$AGENT_HOME/auth.json" ] || die "no auth.json in $AGENT_HOME — run 'codex login', then bootstrap step 7.7" $EX_ENV
 
   grep -qE '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"read-only"' "$base" \
@@ -588,7 +659,7 @@ preflight() {
       || die "$prof is not read-only — $mode must not be able to write" $EX_ENV
   fi
 
-  if [ "$mode" = blind ]; then
+  if [ "$(profile_for "$mode")" = blind ]; then
     # blind's whole claim is that it reads nothing, and two of its three fences
     # are keys in this file rather than anything the run would notice missing.
     # A profile name that does not resolve is the worst case measured on this
@@ -788,6 +859,36 @@ run_review() {
 # around. Note what this costs: `codex exec review` requires a git repository, so
 # blind cannot use the review subcommand at all and gets no structured findings
 # array — the prompt below is doing the job that subcommand does for `review`.
+# scoped: the same fence as blind, with COPIES of named files in cwd instead of
+# a diff in the prompt. No new profile — the containment is the empty directory,
+# and what changes is only what was placed in it.
+run_scoped() {
+  local dir="$1" extra="$2" out="$3"
+  local prompt
+  prompt="You are looking at a directory holding COPIES of a few files from a
+repository. This is everything you have: there is no wider repository to open,
+and files you were not given do not exist for you. Do not guess at their
+contents — say what you would need instead.
+
+Answer the caller's question about what is here. Be concrete: name the file and
+the line. If what is here is not enough to answer, say so plainly rather than
+producing an answer to justify the run.
+
+Cite paths RELATIVE to this directory — 'docs/notes.md:12', never the absolute
+path you see. The absolute one is a scratch location that will not exist when
+the caller reads your answer, and a citation nobody can follow is not one."
+  [ -n "$extra" ] && prompt="$prompt
+
+The caller asks: $extra"
+
+  local -a argv=("$CODEX_BIN" exec -p blind --json --skip-git-repo-check -C "$dir" -)
+  printf '%s\n' "${argv[*]}" > "$out/invocation.txt"
+  printf '%s\n' "$prompt" > "$out/prompt.txt"
+  "${argv[@]}" < "$out/prompt.txt" \
+    > "$RUN_SCRATCH/stream.jsonl" 2> "$RUN_SCRATCH/codex-stderr.log"
+  return 0
+}
+
 run_blind() {
   local empty="$1" extra="$2" out="$3"
 
@@ -889,15 +990,16 @@ main() {
   [ $# -ge 1 ] || usage
   local mode="$1"; shift
   case "$mode" in
-    blind|review|gate) ;;
+    blind|scoped|review|gate) ;;
     -h|--help)   usage ;;
-    *) say "unknown mode '$mode' — expected 'blind', 'review' or 'gate'"; usage ;;
+    *) say "unknown mode '$mode' — expected 'blind', 'scoped', 'review' or 'gate'"; usage ;;
   esac
 
   # Strict parsing. Everything not named here is refused rather than forwarded:
   # a flag this wrapper passes through unread is a flag that can widen the fence.
   local scope_flag="--uncommitted" scope_val="" extra=""
-  local blind_lines="" blind_binaries=""
+  local blind_lines="" blind_binaries="" scoped_files="" scoped_bytes=""
+  local -a paths=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --uncommitted)
@@ -917,7 +1019,16 @@ main() {
         say "refusing unknown option '$1'. ask-codex takes a mode, never a sandbox —"
         say "policy lives in ~/.codex-agent/<mode>.config.toml, not on this command line."
         usage ;;
-      *) extra="${extra:+$extra }$1"; shift ;;
+      *)
+        # 🛑 THIS CASE MUST STAY BELOW `-*`. Written above it, every unknown
+        # option stopped being refused and became a bare argument instead —
+        # which is the door cycle 1 found open, reopened by an ordering mistake
+        # while adding a mode that has nothing to do with it.
+        #
+        # scoped is the one mode whose bare arguments are PATHS, so they are
+        # collected separately and its question lives after `--`.
+        if [ "$mode" = scoped ]; then paths+=("$1"); shift; continue; fi
+        extra="${extra:+$extra }$1"; shift ;;
     esac
   done
 
@@ -966,7 +1077,7 @@ main() {
     printf 'codex_bin   %s\n' "$CODEX_BIN"
     printf 'codex_home  %s\n' "$CODEX_HOME"
     printf 'real_home   %s  (from the password database, not $HOME=%s)\n' "$REAL_HOME" "${HOME:-unset}"
-    for f in "$AGENT_HOME/config.toml" "$AGENT_HOME/$mode.config.toml"; do
+    for f in "$AGENT_HOME/config.toml" "$AGENT_HOME/$(profile_for "$mode").config.toml"; do
       printf '%-11s %s  %s\n' "$(basename "$f")" \
         "$(shasum -a 256 "$f" 2>/dev/null | cut -c1-16)" "$f"
     done
@@ -1016,6 +1127,28 @@ main() {
       || die "could not create the empty working directory" $EX_ENV
     say "$blind_lines diff line(s) in; cwd is an empty directory and nothing else is readable"
     run_blind "$RUN_TREE" "$extra" "$out"
+  elif [ "$mode" = scoped ]; then
+    [ ${#paths[@]} -gt 0 ] || { say "scoped needs at least one path — that is the whole point of it"; usage; }
+    RUN_TREE=$(mktemp -d "${TMPDIR:-/tmp}/ask-codex-scoped-XXXXXX") \
+      || die "could not create the scoped directory" $EX_ENV
+    local mstat
+    mstat=$(_py materialise "$repo" "$RUN_TREE" 8000000 "${paths[@]}") \
+      || die "could not copy the named paths" $EX_ENV
+    case "$mstat" in
+      EMPTY)   die "none of the named paths held a readable file" $EX_USAGE ;;
+      REFUSED*) say "refusing to run — a path you named was not copied, and a scoped answer"
+                say "about a different set of files is worse than no answer:"
+                say "  ${mstat#REFUSED }"
+                exit $EX_USAGE ;;
+      TOOBIG*) set -- $mstat
+                die "the named paths are $2 bytes, over the $3 byte limit — name fewer" $EX_USAGE ;;
+    esac
+    set -- $mstat
+    scoped_files="$2"; scoped_bytes="$3"
+    printf '%s\n' "${paths[@]}" > "$out/scoped-paths.txt"
+    ( cd "$RUN_TREE" && find . -type f | sed 's|^\./||' | sort ) > "$out/scoped-manifest.txt"
+    say "$scoped_files file(s), $scoped_bytes bytes copied in; nothing else in $(basename "$repo") is readable"
+    run_scoped "$RUN_TREE" "$extra" "$out"
   else
     run_review "$repo" "$scope_flag" "$scope_val" "$out"
   fi
@@ -1086,6 +1219,14 @@ main() {
     else
       printf 'scope: %s %s\n' "$scope_flag" "$scope_val"
     fi
+    if [ "$mode" = scoped ]; then
+      printf 'profile_used: blind — scoped is the same fence with copies placed in cwd\n'
+      printf 'reach: only the files listed in scoped-manifest.txt, as copies; the repository was never readable\n'
+      printf 'files_copied: %s\n' "$scoped_files"
+      printf 'bytes_copied: %s\n' "$scoped_bytes"
+      printf 'paths_requested: %s\n' "$(tr '\n' ' ' < "$out/scoped-paths.txt")"
+      printf 'network: off\n'
+    fi
     if [ "$mode" = blind ]; then
       printf 'reach: none — cwd was an empty directory, the repository was never readable\n'
       printf 'diff_lines: %s\n' "$blind_lines"
@@ -1107,13 +1248,16 @@ main() {
   elif [ "$mode" = blind ]; then
     printf 'ask-codex: mode=blind scope=%s %s (%s diff lines; nothing else was readable)\n' \
       "$scope_flag" "$scope_val" "$blind_lines"
+  elif [ "$mode" = scoped ]; then
+    printf 'ask-codex: mode=scoped %s file(s) copied; nothing else in the repository was readable\n' \
+      "$scoped_files"
   else
     printf 'ask-codex: mode=review scope=%s %s\n' "$scope_flag" "$scope_val"
   fi
   printf 'ask-codex: evidence=%s\n' "$out"
   printf 'SESSION_ID=%s\n' "$session"
   printf 'ask-codex: follow up with — CODEX_HOME=%s %s exec -p %s resume %s\n' \
-    "$AGENT_HOME" "$CODEX_BIN" "$mode" "$session"
+    "$AGENT_HOME" "$CODEX_BIN" "$(profile_for "$mode")" "$session"
 
   case "$verdict" in
     FAIL)          exit $EX_GATE_FAIL ;;
