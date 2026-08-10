@@ -25,3 +25,22 @@ model_reasoning_effort = "medium"
 
 sandbox_mode = "read-only"
 approval_policy = "never"
+
+# THE SANDBOX DOES NOT COVER WEB SEARCH, and web search is on by default.
+# Measured 2026-08-10 (codex-cli 0.147.0-alpha.1.2): from an EMPTY directory,
+# under sandbox_mode = "read-only" with sandbox_workspace_write.network_access
+# = false, Codex ran a web search and returned a live headline. The sandbox
+# governs model-generated SHELL commands; the search tool is called by the
+# Codex process, which is not inside that sandbox. Turning the network off
+# closes one door and leaves this one open.
+#
+# The key is a top-level STRING, and the two obvious spellings both fail:
+# `[tools] web_search = false` is accepted and silently ignored (search still
+# ran), and top-level `web_search = false` is a hard type error. Only
+# `web_search = "disabled"` closes it — 0 search events, the model reports it
+# has no search tool. Evidence: codex-bridge
+# evidence/bridge-v2-websearch-b4-2026-08-10/.
+#
+# A profile that genuinely needs search overrides this in its own file, which
+# is a visible, committed edit — the same rule the network switch follows.
+web_search = "disabled"
