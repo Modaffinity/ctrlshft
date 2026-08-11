@@ -1,6 +1,6 @@
 ---
 name: explore
-description: "Deep codebase exploration using parallel subagents. Use when asked to 'explore', 'understand', 'investigate', 'map out', or 'how does X work' in part of a codebase. Not for hunting defects — that is codebase-audit, which owns the word audit."
+description: "Deep codebase exploration using parallel subagents. Use when asked to 'explore', 'understand', 'investigate', 'map out', 'how does X work', or 'audit' a part of the codebase."
 ---
 
 # Explore
