@@ -85,6 +85,41 @@ When writing to `loops/OPEN_LOOPS.md` or an equivalent register, the entry carri
 `Raised` is set once and never edited. `Last reviewed` means someone judged whether the entry is still
 true — a reformat is not a review.
 
+## Prose in frontmatter must be a block scalar
+
+**A plain YAML scalar cannot contain `: ` (colon-space).** The parser reads the second colon as a nested
+key and the whole frontmatter fails — so the document loses its metadata *and* renders wrong in every
+previewer, while looking perfectly fine in the editor.
+
+Measured failure, four files in one session: `status: active — ... one operator decision: adjudicating
+the findings` produced *"nested mappings are not allowed in compact mappings."* Status and revision
+lines attract this because a status is naturally written as *label: explanation*.
+
+**The fix — use a folded block scalar for any value holding a sentence:**
+
+```yaml
+status: >-
+  active — Tasks A and B are closed. What remains is one operator decision: adjudicating
+  the third review's two blocking findings.
+```
+
+Inside `>-` colons are ordinary text. **Also affected:** flow sequences, where a bare URL breaks on
+`https:` — quote each element (`sources: ["https://…"]`). **Check it, don't eyeball it** — one line of
+`ruby -ryaml` over the block is the whole test, and nothing else in this skill has a cheaper check.
+
+## Length is a budget, not a target
+
+**Applies to documents that are actually large.** The trade at the top of this skill names the context
+budget, and a model reading it tends to over-apply the third leg — flagging size on a file where size
+was never the problem, or hedging about a document's weight instead of writing it.
+
+**The operator's calibration, recorded because it corrects real behaviour:** *"For sure we need to be
+careful about the size of a context file. However, what is needed is needed."* A working file of a few
+hundred lines is not a size problem. **Raise weight only where it changes a decision** — a governing
+document a reader must scan, or an artifact going into a review fence that pays per byte. Do not open a
+document by apologising for its length, and do not describe growth as a regression when the growth was
+the requested content.
+
 ## What this skill deliberately omits
 
 **A model with no skill already does these**, so a rule for them is instruction density with no upside:
