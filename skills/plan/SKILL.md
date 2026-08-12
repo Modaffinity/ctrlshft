@@ -27,11 +27,13 @@ When invoked against an existing plan directory:
 2. Report to the operator:
    - The vision.
    - Each branch and its status (sketched / detailed).
-   - The current wave — which is open, or that none is open.
+   - The open waves — which branches are currently being detailed, up to the cap, or that none are
+     open.
    - Each goal and its status (emitted / gate-1-passed / gate-2-passed / skipped), including verdicts.
    - Any falsified assumptions (from `assumptions.md` or `log.jsonl`).
    - Any open questions (from `questions.md`).
-   - **What is next** — which wave to open, which branch to detail, or that the plan is complete.
+   - **What is next** — which wave(s) to open next within the cap, which branch(es) to detail, or
+     that the plan is complete.
 3. Wait for the operator's instruction before acting.
 
 Do not re-run discovery or re-emit goals that already exist. Resume means *read and report*, then
@@ -175,8 +177,9 @@ so whatever could break everything gets tested first.
 
 Select the next branch by risk order. Log: `wave-opened` with wave_id and branch slug.
 
-**Only one wave is open at a time.** Refuse requests to detail a branch outside the current wave.
-Branches outside the current wave remain sketched until their wave opens.
+**Up to two waves may be open at once — branches progress in parallel, not one at a time.** The cap
+bounds attention, not dependency order, and the operator may raise it. Refuse requests to open a
+wave beyond the cap. Branches beyond the cap remain sketched until a wave slot opens.
 
 ### 3c. Detail the branch
 
@@ -199,8 +202,9 @@ goal_id, branch, and reason. This is distinct from blocked — blocked means *ca
 skipped means *will not proceed*. Nothing changes in CortexOS: a goal skipped after dispatch maps
 to the bus's existing `cancelled`.
 
-If more branches remain, return to Step 3a for the next wave. Each subsequent wave benefits from
-what was learned in prior waves rather than guesses made earlier.
+If more branches remain, return to Step 3a to open the next wave — under the cap, it can run
+alongside waves still open. Each wave benefits from what was learned in prior closed waves rather
+than guesses made earlier.
 
 ---
 
