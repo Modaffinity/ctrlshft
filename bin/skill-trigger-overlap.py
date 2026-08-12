@@ -48,6 +48,19 @@ else:
 # States that remove a skill from the listing the model routes on.
 HIDDEN_STATES = {"off", "user-invocable-only"}
 
+# Two rules, and BOTH were found by testing rather than reasoning.
+#
+# 1. A quote opens a run only when the preceding character is not alphanumeric, and
+#    closes one only when the following character is not alphanumeric. Without this,
+#    every possessive and contraction opens a phantom phrase that swallows prose to
+#    the next apostrophe — and phantom phrases overlap with each other, filling the
+#    report with punctuation.
+#
+# 2. The body may not contain the delimiter. Without this, a length floor of 3 makes
+#    the match RUN PAST a too-short item to the next quote: "Use 'a' or 'ab' or
+#    'abc'." yields the phantom phrase "a or ab", which no skill ever claimed.
+QUOTED = re.compile(r"""(?<![A-Za-z0-9])(['"])((?:(?!\1).){3,60})\1(?![A-Za-z0-9])""", re.S)
+
 
 def load_settings(paths):
     """Merge enabledPlugins and skillOverrides across the settings layers.
@@ -88,6 +101,26 @@ def frontmatter_description(path):
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
         value = value[1:-1]
     return value
+
+
+def normalise(text):
+    """Compare on meaning, not typography: casing must not defeat the check."""
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", text.lower())).strip()
+
+
+def phrases(description):
+    """The trigger phrases a description CLAIMS, normalised.
+
+    Only quoted runs count. Roughly two thirds of the estate declares triggers in
+    prose instead and is invisible here — which is why the coverage line is
+    printed on every run and why this reports rather than validates.
+    """
+    found = set()
+    for _quote, body in QUOTED.findall(description):
+        normalised = normalise(body)
+        if len(normalised) >= 3:
+            found.add(normalised)
+    return found
 
 
 def discover(skills_root, plugins_root, enabled, overrides):
@@ -157,6 +190,13 @@ def main():
     print()
     for line in render_sources(loaded, silenced):
         print(line)
+
+    analysable = [record for record in loaded if phrases(record["description"])]
+    print()
+    print(f"  {len(analysable)} of {len(loaded)} analysable "
+          f"· {len(loaded) - len(analysable)} declare triggers in prose and cannot be checked")
+    print("  A skill can also fail to fire because its description was dropped for")
+    print("  context budget — run /doctor for that; this tool cannot see it.")
     return 0
 
 

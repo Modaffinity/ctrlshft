@@ -115,5 +115,28 @@ class TestPopulation(Fixture):
         self.assertIn("nothing was measured", proc.stdout.lower())
 
 
+class TestPhraseExtraction(Fixture):
+    def test_coverage_line_counts_analysable_skills(self):
+        self.add_skill("quoted", """ "Does things. Use when asked to 'do a thing'." """)
+        self.add_skill("prose", '"Use when encountering any bug or test failure."')
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("1 of 2 analysable", proc.stdout)
+
+    def test_possessives_and_contractions_raise_no_phantom_phrase(self):
+        # Without the alphanumeric-boundary rule, each apostrophe opens a run that
+        # swallows prose to the next one, and phantom runs collide with each other.
+        self.add_skill("gamma", '"Reads the agent\'s config and the user\'s prefs; don\'t guess."')
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("0 of 1 analysable", proc.stdout)
+
+    def test_wholly_quoted_short_description_is_not_a_trigger(self):
+        self.add_skill("delta", '"Fix the widget"')
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("0 of 1 analysable", proc.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
