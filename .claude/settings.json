@@ -274,6 +274,9 @@
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true
   },
+  "skillOverrides": {
+    "systematic-debugging": "user-invocable-only"
+  },
   "sandbox": {
     "enabled": true,
     "filesystem": {
