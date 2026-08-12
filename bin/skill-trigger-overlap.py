@@ -123,6 +123,75 @@ def phrases(description):
     return found
 
 
+def _key(record):
+    return f"{record['source']}:{record['name']}"
+
+
+def _pair_key(first, second):
+    return tuple(sorted([_key(first), _key(second)]))
+
+
+def duplicates(loaded):
+    """Skills that share a name, or whose descriptions are identical.
+
+    No judgement required: the second one cannot win on description, ever. The
+    phrase rule is blind to this case — two skills can be byte-identical and quote
+    nothing at all, which is exactly what happened with systematic-debugging.
+    """
+    by_name, by_description = {}, {}
+    for record in loaded:
+        by_name.setdefault(record["name"], []).append(record)
+        normalised = normalise(record["description"])
+        if normalised:
+            by_description.setdefault(normalised, []).append(record)
+
+    found, seen = [], set()
+    for group in list(by_name.values()) + list(by_description.values()):
+        if len(group) < 2:
+            continue
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                first, second = group[i], group[j]
+                key = _pair_key(first, second)
+                if key in seen:
+                    continue
+                seen.add(key)
+                reasons = []
+                if first["name"] == second["name"]:
+                    reasons.append("same name")
+                both = normalise(first["description"])
+                if both and both == normalise(second["description"]):
+                    reasons.append("identical description")
+                found.append((first, second, reasons))
+    return found
+
+
+def overlaps(loaded, skip):
+    """Pairs where both quote a phrase and one contains the other at word boundaries.
+
+    Containment, not equality: 'code review' sits inside 'do a code review', and
+    requiring equality missed real overlaps inside the half of the estate the rule
+    can already see. Pairs already reported as duplicates are skipped so one
+    problem is not reported twice.
+    """
+    claimed = {_key(record): phrases(record["description"]) for record in loaded}
+    found = []
+    for i in range(len(loaded)):
+        for j in range(i + 1, len(loaded)):
+            first, second = loaded[i], loaded[j]
+            if _pair_key(first, second) in skip:
+                continue
+            shared = sorted({
+                (left, right)
+                for left in claimed[_key(first)]
+                for right in claimed[_key(second)]
+                if left == right or f" {left} " in f" {right} " or f" {right} " in f" {left} "
+            })
+            if shared:
+                found.append((first, second, shared))
+    return found
+
+
 def discover(skills_root, plugins_root, enabled, overrides):
     """Return (loaded, silenced). Only `loaded` can compete for a trigger."""
     loaded, silenced = [], []
@@ -172,6 +241,57 @@ def render_sources(loaded, silenced):
     return lines
 
 
+def render_findings(loaded):
+    """Routing duplicates first: they need no judgement, so they must not be buried.
+
+    A shared NAME is reported separately and explicitly NOT as a routing conflict.
+    Within ~/dotfiles/skills names are directory names, so unique by construction —
+    a shared name can only occur across sources, and plugin skills are namespaced
+    (`superpowers:x` vs `x`), so invocation does not collide. It is an editing
+    hazard worth knowing about, not a competition for a trigger.
+    """
+    lines = []
+    dupes = duplicates(loaded)
+    routing = [(a, b, why) for a, b, why in dupes if "identical description" in why]
+    naming = [(a, b, why) for a, b, why in dupes if "identical description" not in why]
+
+    # Only identical descriptions suppress the overlap check. A same-name pair with
+    # DIFFERENT descriptions can still overlap on a phrase, and that is a real finding.
+    skip = {_pair_key(a, b) for a, b, _ in routing}
+
+    lines.append("  ROUTING DUPLICATES — identical descriptions; the second cannot win, ever")
+    if not routing:
+        lines.append("    (none)")
+    for first, second, _why in routing:
+        lines.append(f"    {_key(first)}  <->  {_key(second)}")
+        for record in (first, second):
+            if not record["editable"]:
+                lines.append(
+                    f"      {_key(record)} cannot be edited, and skillOverrides does not"
+                    " reach plugin skills — silence the other side"
+                )
+
+    if naming:
+        lines.append("")
+        lines.append("  NAMING NOTES — same name, different descriptions. NOT a routing conflict:")
+        lines.append("  plugin skills are namespaced, so invocation does not collide. Flagged only")
+        lines.append("  because it is easy to edit the wrong file.")
+        for first, second, _why in naming:
+            lines.append(f"    {_key(first)}  <->  {_key(second)}")
+
+    lines.append("")
+    lines.append("  OVERLAP CANDIDATES — a human decides whether each is a real conflict")
+    laps = overlaps(loaded, skip)
+    if not laps:
+        lines.append("    (no overlap)")
+    for first, second, shared in laps:
+        for left, right in shared:
+            lines.append(f"    {_key(first)} '{left}'  <->  {_key(second)} '{right}'")
+        if not first["editable"] or not second["editable"]:
+            lines.append("      one side cannot be edited — silence yours instead")
+    return lines
+
+
 def main():
     enabled, overrides = load_settings(SETTINGS_FILES)
     loaded, silenced = discover(SKILLS_ROOT, PLUGINS_ROOT, enabled, overrides)
@@ -189,6 +309,9 @@ def main():
     print(f"  {len(loaded)} skill(s) co-loading")
     print()
     for line in render_sources(loaded, silenced):
+        print(line)
+    print()
+    for line in render_findings(loaded):
         print(line)
 
     analysable = [record for record in loaded if phrases(record["description"])]

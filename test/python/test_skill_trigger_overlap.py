@@ -137,6 +137,95 @@ class TestPhraseExtraction(Fixture):
         self.assertEqual(proc.returncode, 0)
         self.assertIn("0 of 1 analysable", proc.stdout)
 
+    def test_short_quoted_items_do_not_span_into_a_phantom_phrase(self):
+        """A length floor without a delimiter exclusion runs PAST a short item.
+
+        'Use "a" or "ab" or "abc".' must yield only "abc" — never "a or ab",
+        which no skill claimed. Found by testing the primitive before building on
+        it; the naive pattern produced exactly that phantom.
+        """
+        self.add_skill("epsilon", """ "Use 'a' or 'ab' or 'abcdef' here." """)
+        self.add_skill("zeta", """ "Also 'a' or 'ab' but nothing else." """)
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        # zeta claims nothing >= 3 chars, so it cannot be analysable and the two
+        # cannot overlap on a phantom.
+        self.assertIn("1 of 2 analysable", proc.stdout)
+        self.assertIn("no overlap", proc.stdout.lower())
+
+
+class TestDetection(Fixture):
+    def test_same_name_different_descriptions_is_a_naming_note_not_a_duplicate(self):
+        """Plugin skills are namespaced, so a shared name is not a routing conflict."""
+        self.add_skill("shared", '"Ours does one thing."')
+        self.add_skill("shared", '"Theirs does another thing."', plugin="realplug@mkt")
+        self.write_settings({"enabledPlugins": {"realplug@mkt": True}})
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("NAMING NOTES", proc.stdout)
+        # It must NOT be presented as a routing duplicate.
+        routing_block = proc.stdout.split("NAMING NOTES")[0]
+        self.assertIn("(none)", routing_block)
+
+    def test_identical_description_is_a_routing_duplicate(self):
+        self.add_skill("alpha", '"Use when encountering any bug."')
+        self.add_skill("beta", '"Use when encountering any bug."')
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("ROUTING DUPLICATES", proc.stdout)
+        routing_block = proc.stdout.split("OVERLAP CANDIDATES")[0]
+        self.assertIn("dotfiles:alpha", routing_block)
+        self.assertIn("dotfiles:beta", routing_block)
+
+    def test_containment_is_caught_not_only_equality(self):
+        self.add_skill("wide", """ "Use when asked to 'code review'." """)
+        self.add_skill("narrow", """ "Use when asked to 'do a code review'." """)
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("code review", proc.stdout)
+        self.assertIn("OVERLAP", proc.stdout)
+
+    def test_a_phrase_only_one_skill_quotes_is_not_an_overlap(self):
+        self.add_skill("alpha", """ "Use when asked to 'run the thing'." """)
+        self.add_skill("beta", """ "Use when asked to 'something else entirely'." """)
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("no overlap", proc.stdout.lower())
+
+    def test_prose_only_skills_do_not_overlap_each_other(self):
+        self.add_skill("alpha", '"Use when encountering any bug."')
+        self.add_skill("beta", '"Use when reviewing changes."')
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("no overlap", proc.stdout.lower())
+
+    def test_uneditable_side_is_marked(self):
+        """Identical descriptions, so this is a ROUTING duplicate and gets the marker."""
+        self.add_skill("shared", '"Use when encountering any bug."')
+        self.add_skill("shared", '"Use when encountering any bug."', plugin="realplug@mkt")
+        self.write_settings({"enabledPlugins": {"realplug@mkt": True}})
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("cannot be edited", proc.stdout.lower())
+
+    def test_silencing_one_side_clears_the_finding(self):
+        """A resolved finding must stay resolved, or the report gets ignored.
+
+        This is the real systematic-debugging case: identical descriptions, one
+        side a plugin we cannot edit, resolved by silencing ours.
+        """
+        self.add_skill("shared", '"Use when encountering any bug."')
+        self.add_skill("shared", '"Use when encountering any bug."', plugin="realplug@mkt")
+        self.write_settings({
+            "enabledPlugins": {"realplug@mkt": True},
+            "skillOverrides": {"shared": "user-invocable-only"},
+        })
+        proc = self.run_tool()
+        self.assertEqual(proc.returncode, 0)
+        routing_block = proc.stdout.split("OVERLAP CANDIDATES")[0]
+        self.assertIn("(none)", routing_block)
+        self.assertNotIn("NAMING NOTES", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
