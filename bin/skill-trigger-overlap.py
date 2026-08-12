@@ -17,7 +17,7 @@ operator's, not a gate's.
 
 WHY THE POPULATION IS NARROW. It is what actually LOADS. Scanning ~/.claude/plugins
 directly reports 78 skills and 10 overlapping pairs; resolving enabledPlugins first
-reports 51 and 3. The extra seven name skills that never load — unactionable findings
+reports 50 and 3. The extra seven name skills that never load — unactionable findings
 are exactly the noise that gets a report ignored.
 """
 
@@ -75,8 +75,12 @@ def load_settings(paths):
             data = json.loads(Path(path).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        enabled.update(data.get("enabledPlugins") or {})
-        overrides.update(data.get("skillOverrides") or {})
+        if not isinstance(data, dict):
+            continue
+        for field, target in (("enabledPlugins", enabled), ("skillOverrides", overrides)):
+            value = data.get(field)
+            if isinstance(value, dict):
+                target.update(value)
     return enabled, overrides
 
 
@@ -219,9 +223,17 @@ def discover(skills_root, plugins_root, enabled, overrides):
             continue
         plugin, _, marketplace = key.partition("@")
         root = Path(plugins_root) / "cache" / marketplace / plugin
-        # The version directory varies; marketplaces/ holds a second copy of the
-        # same plugin and is deliberately not scanned.
-        for skill_md in sorted(root.glob("*/skills/*/SKILL.md")):
+        # marketplaces/ holds a second copy of the same plugin and is deliberately
+        # not scanned. Only ONE version directory actually loads at a time; a
+        # plugin update can leave a stale one behind, and scanning both would give
+        # two records an identical _key (same source, same name) — reporting a
+        # skill as conflicting with itself, or silently dropping a real overlap.
+        # Sort is lexical, not semver-aware, but that is honest for directory names.
+        versions = sorted(p.name for p in root.glob("*") if p.is_dir())
+        if not versions:
+            continue
+        newest = root / versions[-1]
+        for skill_md in sorted(newest.glob("skills/*/SKILL.md")):
             add(skill_md.parent.name, f"plugin {key}", skill_md, False)
 
     return loaded, silenced
@@ -239,6 +251,23 @@ def render_sources(loaded, silenced):
         names = ", ".join(sorted(r["name"] for r in silenced))
         lines.append(f"    {'silenced by skillOverrides (excluded)':<44}{len(silenced)}: {names}")
     return lines
+
+
+def _uneditable_note(first, second, advice_if_one):
+    """A line naming the side(s) skillOverrides cannot reach — or, when NEITHER
+    side is editable, an accurate note instead of advice to silence a side that
+    does not exist. Shared by the routing-duplicates and overlap renderers so the
+    two do not drift (they did: one named the side, the other did not)."""
+    uneditable = [record for record in (first, second) if not record["editable"]]
+    if len(uneditable) == 2:
+        names = " and ".join(_key(record) for record in uneditable)
+        return [
+            f"      neither side can be edited ({names}) — skillOverrides does not"
+            " reach plugin skills; this needs an upstream fix or a decision to live with it"
+        ]
+    if uneditable:
+        return [f"      {_key(uneditable[0])} cannot be edited{advice_if_one}"]
+    return []
 
 
 def render_findings(loaded):
@@ -264,12 +293,10 @@ def render_findings(loaded):
         lines.append("    (none)")
     for first, second, _why in routing:
         lines.append(f"    {_key(first)}  <->  {_key(second)}")
-        for record in (first, second):
-            if not record["editable"]:
-                lines.append(
-                    f"      {_key(record)} cannot be edited, and skillOverrides does not"
-                    " reach plugin skills — silence the other side"
-                )
+        lines.extend(_uneditable_note(
+            first, second,
+            ", and skillOverrides does not reach plugin skills — silence the other side",
+        ))
 
     if naming:
         lines.append("")
@@ -287,8 +314,7 @@ def render_findings(loaded):
     for first, second, shared in laps:
         for left, right in shared:
             lines.append(f"    {_key(first)} '{left}'  <->  {_key(second)} '{right}'")
-        if not first["editable"] or not second["editable"]:
-            lines.append("      one side cannot be edited — silence yours instead")
+        lines.extend(_uneditable_note(first, second, " — silence yours instead"))
     return lines
 
 
@@ -302,7 +328,16 @@ def main():
     if not loaded:
         # LOUD FAILURE BEATS SILENT ZERO. A stale root scans nothing, finds no
         # overlap and prints a clean result while measuring nothing.
-        print(f"  NOTHING WAS MEASURED — no skills found under {SKILLS_ROOT}")
+        if silenced:
+            # The path is fine — every discovered skill was silenced. Blaming
+            # SKILLS_ROOT here would send the reader to check the wrong thing.
+            names = ", ".join(sorted(record["name"] for record in silenced))
+            print(
+                f"  NOTHING WAS MEASURED — all {len(silenced)} discovered skill(s) "
+                f"are silenced by skillOverrides: {names}"
+            )
+        else:
+            print(f"  NOTHING WAS MEASURED — no skills found under {SKILLS_ROOT}")
         print("  This is not a clean result. Check the path before believing it.")
         return 0
 
