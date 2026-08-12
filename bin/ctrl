@@ -107,6 +107,15 @@ case "$CMD" in
         fi
 
         echo ""
+
+        # Skill trigger overlap — ADVISORY ONLY. Deliberately does not touch
+        # $_fail: it reports candidates a human rules on, and a check that fails
+        # on a quoted phrase is silenced by deleting the quotes.
+        if [[ -f "$DOTFILES/bin/skill-trigger-overlap.py" ]] && command -v python3 >/dev/null 2>&1; then
+            python3 "$DOTFILES/bin/skill-trigger-overlap.py" || true
+        fi
+
+        echo ""
         if [[ "$_fail" -eq 0 ]]; then
             green "All checks passed."
         else
