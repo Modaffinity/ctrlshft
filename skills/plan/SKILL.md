@@ -133,6 +133,10 @@ When the vision is grounded and the branch map would be sound, proceed to Step 2
 
 ## Step 2 — Vision and branch map
 
+**This is a selection, not the whole vision** — when the corpus is larger than one version should
+carry, choosing the branch map is the funnel's job: the four questions, gate zero, and the value
+floor, run at every version boundary. Full procedure: `docs/vision/FUNNEL.md`.
+
 Produce:
 
 1. **The vision statement** — what this project achieves, in a paragraph. Write it to `direction.md`.
@@ -205,6 +209,11 @@ to the bus's existing `cancelled`.
 If more branches remain, return to Step 3a to open the next wave — under the cap, it can run
 alongside waves still open. Each wave benefits from what was learned in prior closed waves rather
 than guesses made earlier.
+
+When no branches remain, this version is done — that is the **version boundary**. Before the next
+version is scoped with the funnel above, run the boundary ritual: the adversarial review, the
+deferral walk, reconciliation, and the value-floor test. Full procedure:
+`docs/vision/BOUNDARY_RITUAL.md`.
 
 ---
 
@@ -367,6 +376,23 @@ Every emitted goal inherits from `reliable-task` as hard requirements:
 - A machine-checkable definition of done written before dispatch.
 - Workers produce and commit but never set status.
 
+### 6e. Lane choice
+
+Offer the operator a choice this skill has not asked before: **light** or **heavy**, with a
+recommended default (Step 1d's rule). **Heavy** means every goal in this wave gets a gate-2 judged
+review before being called done — a fresh reviewer per task, the rigor `subagent-driven-development`
+applies. **Light** means gate-1 mechanical verification is enough; no judged review is expected.
+Neither is free: heavy costs a reviewer dispatch per goal, light accepts more risk of an unnoticed
+defect clearing gate 1 alone.
+
+**Record the choice — it does not live only in the transcript.** Append a `lane` change record to
+`vision/changes/`: `subject` is the coordination point for the version being planned, or the
+specific scope item this choice narrows to; `dimension: lane`; `from_ref` is `none` on the first
+choice for that subject, or the prior lane otherwise; `to_ref` is `light` or `heavy`; plus
+`effective_at` and `reason`. Write-once and sealed, like every `vision/changes/` record — shape:
+`vision/changes/20260812T1900-lane-heavy-for-finish-v1.md`. Log `lane-chosen` to `log.jsonl` with
+the same subject and lane, so the plan's own record carries the choice too.
+
 ---
 
 ## Step 7 — Artifact structure
@@ -392,7 +418,13 @@ to a generated file.
 **Required guard:** regeneration-is-a-no-op — `check-plan-surface.sh` must show no diff between
 `log.jsonl` and the generated files.
 
-### Event vocabulary (15 events, fixed before build)
+### Event vocabulary (17 events — 15 fixed before build, 2 added by Task 7)
+
+**Extended, not silently patched.** The 15 below were fixed before build. Two more are added here
+because Step 2's funnel reference and Step 6's lane offer are decisions like any other this skill
+makes — write-back applies to them too, or they live only in the transcript. Extending the
+vocabulary is a deliberate, stated act; overloading an existing event instead would have made
+`log.jsonl` unparseable without external context.
 
 | Event | When logged |
 |---|---|
@@ -411,6 +443,8 @@ to a generated file.
 | `gate-passed` | An approval gate is cleared |
 | `verdict-recorded` | A gate-2 judge writes a verdict |
 | `run-record-written` | A run record captures actuals for a completed goal |
+| `lane-chosen` | The operator picks light or heavy at dispatch handoff (Step 6e) |
+| `funnel-run` | The funnel (`docs/vision/FUNNEL.md`) is applied to select this version's scope (Step 2) |
 
 ---
 
@@ -460,7 +494,9 @@ obligation in v1, not a mechanism.
 - The operator gate (Step 2) is the **only full gate**. Wave checkpoints are light.
 - **Nothing interrupts inside a wave.**
 - Goals are **outcomes, not recipes** — no prescribed steps.
-- The **event vocabulary is fixed** — all mutations go through `log.jsonl` as typed events.
+- The **event vocabulary is fixed by default** — all mutations go through `log.jsonl` as typed
+  events; extending it is a deliberate, stated act (Step 7's vocabulary table), never a silent
+  patch.
 
 ## Reference files (Slice 5)
 
