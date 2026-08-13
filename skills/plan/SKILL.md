@@ -155,6 +155,8 @@ Produce:
 every register is regenerated. Append:
 - `vision-set` — once, with the vision title and summary.
 - `branch-sketched` — once per branch, with slug, name, and summary.
+- `funnel-run` — once, when the funnel selects this version's scope, with what was selected and
+  what was deferred.
 - `decision-made` — for each decision, with id, title, why, and implications.
 - `assumption-recorded` — for each assumption, with id, text, provenance, confidence, dependents.
 - `question-opened` — for each open question, with id, text, and resolves_when.
@@ -386,9 +388,10 @@ Neither is free: heavy costs a reviewer dispatch per goal, light accepts more ri
 defect clearing gate 1 alone.
 
 **Record the choice — it does not live only in the transcript.** Append a `lane` change record to
-`vision/changes/`: `subject` is the coordination point for the version being planned, or the
-specific scope item this choice narrows to; `dimension: lane`; `from_ref` is `none` on the first
-choice for that subject, or the prior lane otherwise; `to_ref` is `light` or `heavy`; plus
+`vision/changes/`: `id` (its own field, distinct from the filename — the worked example's is
+`ch-20260812-lane-heavy`); `subject` is the coordination point for the version being planned, or
+the specific scope item this choice narrows to; `dimension: lane`; `from_ref` is `none` on the
+first choice for that subject, or the prior lane otherwise; `to_ref` is `light` or `heavy`; plus
 `effective_at` and `reason`. Write-once and sealed, like every `vision/changes/` record — shape:
 `vision/changes/20260812T1900-lane-heavy-for-finish-v1.md`. Log `lane-chosen` to `log.jsonl` with
 the same subject and lane, so the plan's own record carries the choice too.
