@@ -10,11 +10,11 @@ Reads <plan-dir>/log.jsonl and writes (or prints) the five generated files:
 The log is the source of truth; the tree is a projection.  Nothing in the
 tree is hand-edited — a change is an append to the log, never an edit.
 
-Event vocabulary (SPEC §3, 15 events):
+Event vocabulary (SPEC §3, 17 events):
   vision-set  branch-sketched  branch-detailed  wave-opened  wave-closed
   goal-emitted  goal-skipped  decision-made  assumption-recorded
   assumption-falsified  question-opened  question-resolved  gate-passed
-  verdict-recorded  run-record-written
+  verdict-recorded  run-record-written  lane-chosen  funnel-run
 """
 
 import json
@@ -28,7 +28,7 @@ EVENTS = {
     "wave-closed", "goal-emitted", "goal-skipped", "decision-made",
     "assumption-recorded", "assumption-falsified", "question-opened",
     "question-resolved", "gate-passed", "verdict-recorded",
-    "run-record-written",
+    "run-record-written", "lane-chosen", "funnel-run",
 }
 
 

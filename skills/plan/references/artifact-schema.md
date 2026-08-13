@@ -49,12 +49,12 @@ No `completed` status — completion is derived from disk by gate 1, not declare
 
 ## `log.jsonl` — append-only source of truth
 
-Each line: `{"event": "<type>", "timestamp": "<ISO>", "data": {...}}`. Exactly 15 event
+Each line: `{"event": "<type>", "timestamp": "<ISO>", "data": {...}}`. Exactly 17 event
 types; unknown types cause the generator to exit with a fatal error.
 
 ---
 
-## Event vocabulary — 15 events
+## Event vocabulary — 17 events
 
 ### Plan-level events
 
@@ -128,6 +128,17 @@ then checks for — a judge that sets status directly is declared status wearing
 Data: `id`, `goal_id`, `detail`. Captures what actually happened — which assumptions were
 falsified, whether the goal completed without prescribed steps. After ten to twenty plans
 these records provide data to revise the sizing numbers in Step 4.
+
+### Funnel and lane events
+
+**`funnel-run`** — logged once, when the funnel (`FUNNEL.md`, this directory) selects this
+version's scope (Step 2).
+Data: `selected`, `deferred` — what the funnel kept in scope and what it pushed out.
+
+**`lane-chosen`** — logged when the operator picks light or heavy at dispatch handoff
+(Step 6e).
+Data: `subject`, `lane` (`light`/`heavy`). Mirrors the sealed `vision/changes/` record for
+the same choice — this event is the plan's own copy, not a replacement for it.
 
 ---
 

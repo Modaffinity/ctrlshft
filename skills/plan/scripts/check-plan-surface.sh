@@ -10,7 +10,7 @@
 #
 # Checks:
 #   C0  log.jsonl exists and is valid JSON-lines
-#   C1  all events use the 15-event vocabulary
+#   C1  all events use the 17-event vocabulary
 #   C2  regeneration is a no-op: generated files match what is on disk
 #   C3  all 5 generated surface files exist
 
@@ -35,7 +35,7 @@ done < "$D/log.jsonl"
 
 # ---- C1: vocabulary check ----------------------------------------------------
 echo "C1  event vocabulary"
-VOCAB="vision-set branch-sketched branch-detailed wave-opened wave-closed goal-emitted goal-skipped decision-made assumption-recorded assumption-falsified question-opened question-resolved gate-passed verdict-recorded run-record-written"
+VOCAB="vision-set branch-sketched branch-detailed wave-opened wave-closed goal-emitted goal-skipped decision-made assumption-recorded assumption-falsified question-opened question-resolved gate-passed verdict-recorded run-record-written lane-chosen funnel-run"
 while IFS= read -r line; do
   [ -z "$line" ] && continue
   ev=$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('event',''))" "$line" 2>/dev/null)

@@ -135,7 +135,8 @@ When the vision is grounded and the branch map would be sound, proceed to Step 2
 
 **This is a selection, not the whole vision** — when the corpus is larger than one version should
 carry, choosing the branch map is the funnel's job: the four questions, gate zero, and the value
-floor, run at every version boundary. Full procedure: `docs/vision/FUNNEL.md`.
+floor, run at every version boundary. Full procedure: `references/FUNNEL.md` (a synced copy — the
+canonical version lives at `docs/vision/FUNNEL.md` in the `plan-skill` pod, gitignored there).
 
 Produce:
 
@@ -215,7 +216,8 @@ than guesses made earlier.
 When no branches remain, this version is done — that is the **version boundary**. Before the next
 version is scoped with the funnel above, run the boundary ritual: the adversarial review, the
 deferral walk, reconciliation, and the value-floor test. Full procedure:
-`docs/vision/BOUNDARY_RITUAL.md`.
+`references/BOUNDARY_RITUAL.md` (a synced copy — the canonical version lives at
+`docs/vision/BOUNDARY_RITUAL.md` in the `plan-skill` pod, gitignored there).
 
 ---
 
@@ -447,7 +449,7 @@ vocabulary is a deliberate, stated act; overloading an existing event instead wo
 | `verdict-recorded` | A gate-2 judge writes a verdict |
 | `run-record-written` | A run record captures actuals for a completed goal |
 | `lane-chosen` | The operator picks light or heavy at dispatch handoff (Step 6e) |
-| `funnel-run` | The funnel (`docs/vision/FUNNEL.md`) is applied to select this version's scope (Step 2) |
+| `funnel-run` | The funnel (`references/FUNNEL.md`) is applied to select this version's scope (Step 2) |
 
 ---
 
