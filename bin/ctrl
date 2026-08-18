@@ -115,6 +115,20 @@ case "$CMD" in
             python3 "$DOTFILES/bin/skill-trigger-overlap.py" || true
         fi
 
+        # Always-on skill core — pinned, not "whatever the plugin currently ships".
+        # Lives in the CortexOS control plane because that repo owns the design; skipped
+        # cleanly on a machine that does not have it, since ctrl is generic and this is not.
+        _core_check="$HOME/Library/CloudStorage/Dropbox/LLM/cortexos-bakeoff-lab/scripts/check_core_manifest.sh"
+        if [[ -x "$_core_check" ]]; then
+            if bash "$_core_check"; then
+                green "  Always-on skill core matches its pinned manifest"
+            else
+                red "  Always-on skill core drifted from its pinned manifest"
+                _fail=1
+            fi
+            echo ""
+        fi
+
         echo ""
         if [[ "$_fail" -eq 0 ]]; then
             green "All checks passed."
