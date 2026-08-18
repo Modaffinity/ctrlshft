@@ -1,0 +1,19 @@
+# The always-on core, pinned. `ctrl check` fails when the installed plugin no longer matches.
+#
+# Without this the core is "whatever superpowers currently ships", so an upgrade silently adds to
+# or removes from the one set no pod opts out of.
+version: 6.3.0
+brainstorming
+dispatching-parallel-agents
+executing-plans
+finishing-a-development-branch
+receiving-code-review
+requesting-code-review
+subagent-driven-development
+systematic-debugging
+test-driven-development
+using-git-worktrees
+using-superpowers
+verification-before-completion
+writing-plans
+writing-skills

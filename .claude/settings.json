@@ -279,7 +279,21 @@
     "superpowers@claude-plugins-official": true
   },
   "skillOverrides": {
-    "systematic-debugging": "user-invocable-only"
+    "systematic-debugging": "user-invocable-only",
+    "address-review": "user-invocable-only",
+    "audit": "user-invocable-only",
+    "carve": "user-invocable-only",
+    "check": "user-invocable-only",
+    "cmd": "user-invocable-only",
+    "commit": "user-invocable-only",
+    "finish": "user-invocable-only",
+    "preflight": "user-invocable-only",
+    "README": "user-invocable-only",
+    "review": "user-invocable-only",
+    "ship": "user-invocable-only",
+    "test": "user-invocable-only",
+    "work": "user-invocable-only",
+    "datalab-extract": "user-invocable-only"
   },
   "sandbox": {
     "enabled": true,
