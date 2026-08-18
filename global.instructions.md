@@ -50,7 +50,9 @@ This section covers two triggers: automatic self-learning after tasks, and expli
 
 **Trigger 1 — After completing any task where you loaded a SKILL.md:**
 Self-evaluate: did anything go wrong, require a workaround, or behave differently than documented?
-If yes, update the skill inline where the fix belongs — fix wrong instructions, add missing steps, correct parameters. Keep it DRY: integrate the new knowledge into the existing structure rather than appending to a separate section. If no suitable place exists, add a bullet to a `## Lessons Learned` section at the bottom (create if needed). Replace old bullets that a new finding supersedes.
+If yes, update the skill inline where the fix belongs — fix wrong instructions, add missing steps, correct parameters.
+
+**Where to write it depends on whether the skill has a workshop pod.** If it does (every CortexOS operation-layer skill — see `REGISTRY.md`), the finding goes to the **pod's** copy at `~/Library/CloudStorage/Dropbox/LLM/cortexos-pods/hq/<pod>/skills/<skill>/` and its `ISSUE_LOG.md`, never to the deployed copy: the deployed copy is generated, the next promote overwrites it, and a copy carrying `.mirror-of-operation-layer.<skill>` beside it in `~/dotfiles/skills/` is exactly such a generated copy. If it does not (the `~/dotfiles/skills/` planning skills, which have exactly one copy), edit inline as above — for those the deployed copy *is* the source. Keep it DRY: integrate the new knowledge into the existing structure rather than appending to a separate section. If no suitable place exists, add a bullet to a `## Lessons Learned` section at the bottom (create if needed). Replace old bullets that a new finding supersedes.
 Do NOT update for user error, transient issues (network timeout, rate limit), or findings already documented.
 After updating, tell the user: "Updated [skill-name] skill: [one-sentence summary of what changed]"
 
