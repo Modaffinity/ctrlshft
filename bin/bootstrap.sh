@@ -228,13 +228,56 @@ else
     fi
 fi
 
-# ── 3. Symlink ~/.claude/skills/ ──────────────────────────────────────────────
+# ── 3. Materialise the always-on skill core ───────────────────────────────────
+# 🛑 This used to be `ensure_symlink "$DOTFILES/skills" "$CLAUDE_DIR/skills"`, which made
+# ~/.claude/skills ONE LINK TO THE WHOLE LIBRARY — so every project loaded all of it.
+# Skills are now selected per pod: a pod declares names in pod/skills.txt and a SessionStart
+# hook materialises them under <pod>/.claude/skills/. ~/.claude/skills holds only the CORE —
+# the handful every project gets whether it asks or not.
+#
+# 🛑 IT MUST NOT CALL ensure_symlink. That helper does `rm -rf "$target"` when the target is a
+# real directory (bin/_lib.sh), so the next routine `ctrl bootstrap` would DELETE the core and
+# restore the whole-library symlink — reverting the design silently. This is the reason the
+# rewrite had to land in the same change as the swap, not after it.
+# Design: cortexos-bakeoff-lab/plans/skill-activation-per-pod/SPEC.md §4/§5.
 echo
-green "[3/13] Skills directory (Claude Code)"
+green "[3/13] Always-on skill core (Claude Code)"
+CORE_SKILLS=(ask-codex atomic-commits code-review pr-preflight review-pr-copilot plan-archive)
 if [[ "${ADOPT_SKIP_SKILLS:-false}" == true ]]; then
-    yellow "  Skipping ~/.claude/skills link (--adopt skip)"
+    yellow "  Skipping ~/.claude/skills core (--adopt skip)"
+elif [[ -L "$CLAUDE_DIR/skills" ]]; then
+    yellow "  ~/.claude/skills is still a symlink to the whole library — leaving it alone."
+    yellow "  The per-pod design expects a real directory here; see SPEC.md §5 (the unhook)."
 else
-    ensure_symlink "$DOTFILES/skills" "$CLAUDE_DIR/skills" "~/.claude/skills"
+    mkdir -p "$CLAUDE_DIR/skills"
+    _core_ok=0; _core_bad=0
+    for _s in "${CORE_SKILLS[@]}"; do
+        if [[ -f "$DOTFILES/skills/$_s/SKILL.md" ]]; then
+            ln -sfn "$DOTFILES/skills/$_s" "$CLAUDE_DIR/skills/$_s"
+            _core_ok=$(( _core_ok + 1 ))
+        else
+            red "  core skill missing from the library: $_s"
+            _core_bad=$(( _core_bad + 1 ))
+        fi
+    done
+    # Anything in the core directory that is NOT a core member is removed: this directory is
+    # generated, and a hand-placed skill here would load in every project silently.
+    for _e in "$CLAUDE_DIR/skills"/* "$CLAUDE_DIR/skills"/.[!.]*; do
+        [[ -e "$_e" || -L "$_e" ]] || continue
+        _b="$(basename "$_e")"
+        _keep=0
+        for _s in "${CORE_SKILLS[@]}"; do [[ "$_b" == "$_s" ]] && _keep=1; done
+        if [[ "$_keep" -eq 0 ]]; then
+            yellow "  removing non-core entry from the core directory: $_b"
+            rm -rf "$_e"
+        fi
+    done
+    if [[ "$_core_bad" -gt 0 ]]; then
+        red "  Core skills linked: $_core_ok — $_core_bad MISSING from the library"
+    else
+        green "  Core skills linked: $_core_ok"
+    fi
+    yellow "  Everything else is per-pod: declare it in that pod's pod/skills.txt"
 fi
 
 # Report discovered skills

@@ -107,13 +107,38 @@ check_no_disable_model_flag() {
     fi
 }
 
+# The always-on skill core: a real directory whose entries each resolve into the library.
+check_core_skills_dir() {
+    local target="$1" label="$2" n=0 bad=0 e
+    if [[ -L "$target" ]]; then
+        yellow "  ~ $label is a symlink to the whole library — the per-pod design expects the core"
+        yellow "    directory here. See cortexos-bakeoff-lab plans/skill-activation-per-pod/SPEC.md §5."
+        return 0
+    fi
+    [[ -d "$target" ]] || { red "  ✗ $label missing — run: ctrl bootstrap"; return 1; }
+    for e in "$target"/*; do
+        [[ -e "$e" || -L "$e" ]] || continue
+        n=$(( n + 1 ))
+        [[ -f "$e/SKILL.md" ]] || { red "  ✗ $label/$(basename "$e") does not resolve"; bad=$(( bad + 1 )); }
+    done
+    if [[ "$bad" -gt 0 ]]; then return 1; fi
+    green "  ✓ $label — always-on core, $n skill(s), all resolve"
+    return 0
+}
+
 echo "Symlink / Consumer Integrity:"
 
 if [[ $_ci_mode -eq 1 ]]; then
     yellow "  ~ Running in --ci mode (static checks only; consumer path checks skipped)"
 else
     check_link_or_windows_copy "$DOTFILES/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md" "~/.claude/CLAUDE.md"
-    check_link_or_windows_copy "$DOTFILES/skills" "$CLAUDE_DIR/skills" "~/.claude/skills"
+    # ~/.claude/skills is NO LONGER a link to the library — it is the always-on core, a real
+    # directory of individual links, so the library is dormant and each pod declares what it
+    # loads. Checking it as a symlink would fail on a correct installation.
+    # ~/.copilot/skills and ~/.agents/skills below are DELIBERATELY still whole-library links:
+    # different tools, different context budgets, and nothing in this workstream measured them
+    # (operator decision 2026-08-18).
+    check_core_skills_dir "$CLAUDE_DIR/skills" "~/.claude/skills"
     check_link_or_windows_copy "$DOTFILES/agents" "$CLAUDE_DIR/agents" "~/.claude/agents"
     check_link_or_windows_copy "$DOTFILES/rules" "$CLAUDE_DIR/rules" "~/.claude/rules"
     check_link_or_windows_copy "$DOTFILES/skills" "$COPILOT_DIR/skills" "~/.copilot/skills"
