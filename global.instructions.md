@@ -34,6 +34,8 @@ Output "Read global instructions." to chat to acknowledge you read this file.
 
 <skill-context>
 If the ACTIVE_CONTEXTS environment variable is set (by ~/dotfiles/bin/detect-context.sh), use it as the authoritative context list. Otherwise, check the workspace for file signatures (next.config.*, composer.json, sanity.config.*, prisma/schema.prisma, etc.) before loading domain-specific skills. Do not load skills irrelevant to the current workspace context.
+
+This rule became partly MECHANICAL on 2026-08-18, and that changes what it is asking of you. ~/dotfiles/skills/ is now a dormant LIBRARY — nothing scans it. ~/.claude/skills holds only the always-on core (ask-codex, atomic-commits, code-review, pr-preflight, review-pr-copilot, plan-archive, plus the superpowers plugin), and a CortexOS pod declares what else it loads in its own pod/skills.txt, materialised as links at session start. So "do not load skills irrelevant to this workspace" is now largely enforced by what is discoverable rather than by your judgement: in a pod, what you can see IS the declared set. The rule still binds where discovery cannot help — a non-pod project gets the core and the built-ins, and picking the wrong one of those is still your call. If a skill you expect is absent in a pod, it was not declared; say so rather than working around it, and the fix is a line in that pod's pod/skills.txt, never a hand-edit of .claude/skills/ (which is generated and rewritten).
 </skill-context>
 
 <!-- Counter-directive for microsoft/vscode#311462: VS Code Insiders 1.117 changed the

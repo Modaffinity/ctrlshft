@@ -29,6 +29,7 @@ Maps failure modes to their enforcement mechanisms. Use this to identify gaps an
 | Push to merged-PR branch | `git-workflow-gate.sh` Gate 2 | PreToolUse/Block | ⚠️ (requires `gh` CLI) |
 | Unpushed commits accumulating | `git-post-commit.sh` | PostToolUse/Warn | ✅ |
 | Stale/merged branches accumulating | `stale-branches.sh` | SessionStart/Info | ✅ |
+| A pod runs without the skills it declares (links are gitignored, so a fresh clone has none) | `pod-skills.sh` | SessionStart | ✅ |
 | Work stranded (not pushed) | `global.instructions.md` | Instruction | 📋 |
 
 ## Security

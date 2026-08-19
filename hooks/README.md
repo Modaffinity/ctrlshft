@@ -24,6 +24,7 @@ Bootstrap symlinks `hooks/` → `~/.claude/hooks/` and merges the configuration 
 | `test-gate.sh` | PreToolUse | Bash | Runs project tests before `git commit`; blocks commit if tests fail |
 | `git-post-push.sh` | PostToolUse | Bash | Info nag when no PR exists after pushing to a feature branch |
 | `stale-branches.sh` | SessionStart | — | Reports merged or stale (>14d) local branches at session start |
+| `pod-skills.sh` | SessionStart | — | Materialises a CortexOS pod's declared skills (`pod/skills.txt` → `.claude/skills/` links) before the session reads its listing. Silent no-op outside a pod. Always exits 0 — SessionStart has no blocking control — and speaks through `hookSpecificOutput`: `reloadSkills` after it creates links, `additionalContext` when a declared skill cannot be resolved, so a degraded pod says so instead of running quietly without its skills. `CORTEXOS_SKILLS_SKIP=1` bypasses |
 | `format-check.sh` | Stop | — | Detects Biome/Prettier/ESLint and formats modified files (non-blocking) |
 | `typecheck.sh` | Stop | — | Runs `tsc --noEmit` on TypeScript projects; blocks stop until types pass |
 | `compaction-guard.sh` | PreCompact | auto | Blocks auto-compaction at ~95% context; directs agent to follow handoff protocol |
