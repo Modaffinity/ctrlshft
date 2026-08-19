@@ -38,12 +38,41 @@ if [ ! -x "$REC" ]; then
 are NOT loaded. Tell the operator before relying on any skill."
 fi
 
-# Fast path: this runs on every /clear and every compaction.
-bash "$REC" --check --pod "$POD" >/dev/null 2>&1 && exit 0
+# 🛑 SAY WHAT THIS POD DECLARES, ALWAYS — not only when something breaks.
+#
+# Nothing in a session's skill listing distinguishes a pod-declared skill from a harness built-in
+# or a slash-command wrapper. Measured 2026-08-18: a session in `vertex/aim` enumerated its listing
+# correctly and then attributed six COMMAND WRAPPERS to "pod-declared" — in a pod that declares
+# nothing at all. The listing cannot carry that information, so the hook does; the declaration is
+# one small file read, and stating it costs far less than a session reasoning from a wrong premise.
+#
+# Skill names are `^[A-Za-z0-9][A-Za-z0-9._-]*$` (enforced by the reconciler), so no JSON escaping
+# is needed and the fast path never has to spawn python.
+declared="$(grep -v '^[[:space:]]*#' "$POD/pod/skills.txt" 2>/dev/null | tr -d '[:blank:]' | grep -v '^$' | tr '\n' ' ')"
+declared="${declared% }"
+
+context_line () {
+  printf 'SKILL ACTIVATION (this pod). DECLARED in pod/skills.txt: %s. ' "${declared:-<none — core only>}"
+  printf 'ALWAYS-ON CORE, in every project: ask-codex atomic-commits code-review pr-preflight '
+  printf 'review-pr-copilot plan-archive, plus the superpowers plugin. '
+  printf 'The shared library ~/dotfiles/skills is DORMANT — a skill not named above is NOT loaded here, '
+  printf 'however many entries your listing shows. '
+  printf 'Anything else you can see is a harness built-in or a slash-command wrapper from '
+  printf '~/dotfiles/commands; six wrappers share a name with a library skill (compliance-audit '
+  printf 'document explore plan research stress-test), so seeing one of those names does NOT mean '
+  printf 'that skill is loaded. To change what loads: edit pod/skills.txt, never .claude/skills/.'
+}
+
+# Fast path: this runs on every /clear and every compaction. Nothing to reconcile, but still say
+# what is loaded — a resumed or compacted session needs the premise as much as a fresh one.
+if bash "$REC" --check --pod "$POD" >/dev/null 2>&1; then
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$(context_line)"
+  exit 0
+fi
 
 out="$(bash "$REC" --pod "$POD" 2>&1)"; rc=$?
 case "$rc" in
-  0) emit "" ;;
+  0) printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","reloadSkills":true,"additionalContext":"%s"}}\n' "$(context_line)"; exit 0 ;;
   2|3)
     echo "pod-skills: this pod cannot load all its declared skills" >&2
     echo "$out" >&2
