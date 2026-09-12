@@ -840,7 +840,7 @@ profile_for() { case "$1" in scoped) printf 'blind' ;; *) printf '%s' "$1" ;; es
 # probe refused and the real run exited 5 with a 0-byte stream; the probe
 # permitted and the real run completed. The dangerous direction — refusing a run
 # that would have worked — was measured and did not occur. Full record:
-# plans/bridge-v3/notes/spike-sandbox-predictor.md in the codex-bridge pod.
+# plans/archive/bridge-v3/notes/spike-sandbox-predictor.md in the codex-bridge pod.
 #
 # 🛑 This deliberately does NOT predict the PATH-aliases failure. Codex carries
 # that one as "WARNING: proceeding, even though we could not create PATH
