@@ -155,6 +155,18 @@ A `blind` or `scoped` report's frontmatter states its reach. If a finding names 
 the report says the model could see, it is a guess — the frontmatter says so explicitly, and it is
 worth taking literally.
 
+⚠️ **The reverse also happens: Codex can report that files it WAS given are missing.** Measured
+2026-08-19 on a `scoped` run — the report declined the whole task, marking all 34 items UNRESOLVED
+with *"Underlying transcript and summary are absent"*, while its own `scoped-manifest.txt` listed
+every one of those files by name and the frontmatter read `files_copied: 12, bytes_copied: 322856`.
+The delivery was fine; the model's account of its own reach was not. **So check the manifest before
+believing a claim of missing input** — it is the wrapper's record, not the model's, and the two can
+disagree. Re-running with the paths asserted in the prompt ("the transcripts ARE present in
+./path/, list that directory and read them") returned a full, correct adjudication.
+
+This is the same rule as the line above, pointing the other way: the frontmatter is authoritative
+about what Codex could see, whether the model claims *more* reach than it had or *less*.
+
 ## Cost
 
 Every call spends ChatGPT quota, and `gate` spends the most because it runs a suite. It is a note,
