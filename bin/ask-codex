@@ -576,6 +576,25 @@ elif op == 'gitconfig':
         'remote.*.partialclonefilter', 'remote.*.promisor',
         'branch.*.remote', 'branch.*.merge', 'branch.*.rebase', 'branch.*.pushremote',
         'branch.*.description',
+        # Written by VS Code, read by VS Code, and not a git key at all: `git
+        # config --get branch.<name>.vscode-merge-base` exits 1 even when the
+        # value is set, because git has no such setting to resolve. It blocked
+        # nine real runs across five pods, the remedy documented every time —
+        # the shape of a refusal that should not exist.
+        #
+        # Measured, not argued, exactly as core.hooksPath below is. With the
+        # value set to `/bin/sh -c 'touch MARK' #`, all fourteen git calls this
+        # wrapper makes — rev-parse, ls-files, ls-tree, diff, diff --cached,
+        # show, symbolic-ref, clone --shared, remote remove, cat-file, checkout
+        # --detach — completed and the marker was never created. The clone does
+        # not inherit the key either. The value is never consumed, so no `-c`
+        # shadow is needed; the suite pins that assumption about the CALL SET.
+        #
+        # This widens the allowlist by ONE non-executable key. The keys that make
+        # a git config dangerous — hooks, aliases, pagers, credential helpers,
+        # core.sshCommand, core.fsmonitor — are untouched, and the suite asserts
+        # a neighbouring branch.* key is still refused.
+        'branch.*.vscode-merge-base',
         'submodule.active', 'submodule.*.url', 'submodule.*.active',
         'submodule.*.branch', 'submodule.*.ignore',
         'user.name', 'user.email', 'user.signingkey',
