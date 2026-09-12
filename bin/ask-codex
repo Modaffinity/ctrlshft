@@ -3,9 +3,11 @@
 #
 # WHY THIS EXISTS. The Codex CLI on this Mac defaults to sandbox_mode =
 # "workspace-write", so anything invoking it without naming a sandbox writes
-# wherever it is standing. This wrapper takes a MODE and never a sandbox: policy
-# lives in ~/.codex-agent/<mode>.config.toml, so widening the fence means editing
-# dotfiles — visible, reviewable, committed — not passing a flag.
+# wherever it is standing. This wrapper NEVER takes a sandbox: policy lives in
+# ~/.codex-agent/<profile>.config.toml, so widening the fence means editing
+# dotfiles — visible, reviewable, committed — not passing a flag. The mode word is
+# optional (the fence is inferred between the two narrow ones); the absence of a
+# sandbox flag is not.
 #
 # THE TWO THINGS IT PROTECTS, and every rule below traces to one of them:
 #   1. the verdict is honest — nobody is told a run succeeded when it did not
@@ -79,7 +81,22 @@ trap cleanup EXIT INT TERM HUP
 
 usage() {
   cat >&2 <<'EOF'
-ask-codex — a fenced call to OpenAI Codex. Takes a mode, never a sandbox.
+ask-codex — a fenced call to OpenAI Codex. The fence is a profile on disk,
+never a flag you pass: there is no sandbox option, and there never will be.
+
+  ask-codex <path>... -- <question>          # the files, as copies
+  ask-codex -- <question>                    # the uncommitted change, as text
+        The usual form: no mode word, and the fence is inferred from what you
+        gave it. Name paths and Codex gets COPIES of exactly those, in an
+        otherwise empty directory. Name none and it gets the change AS TEXT in
+        an empty directory. BOTH use the blind profile — read-only, network and
+        web search off, ~/** denied — so the choice is about what Codex is
+        shown, never about how far it can reach.
+
+        Inference never selects `review` or `gate`: a wider fence is something
+        you ask for by name. A first token that is both a mode word and an
+        existing file is refused rather than guessed. A path that does not
+        exist is refused, because otherwise it would be read as your question.
 
   ask-codex blind [--uncommitted | --base <ref> | --commit <sha>] [question]
         Codex is handed the change AS TEXT and can read nothing at all — cwd is
@@ -104,16 +121,20 @@ ask-codex — a fenced call to OpenAI Codex. Takes a mode, never a sandbox.
         Codex runs this repo's suite inside a disposable clone and files a
         verdict (profile: gate, workspace-write confined to that clone).
 
-All three file evidence/codex-<mode>-<stamp>/ in the current repo, or in the
+The four modes above remain valid and unchanged — `ask-codex scoped docs/ -- 'q'`
+means exactly what it always did. They are spelled out because naming the mode
+is still the way to reach `review` and `gate`, and the way to be explicit.
+
+Every mode files evidence/codex-<mode>-<stamp>/ in the current repo, or in the
 codex-bridge pod when the repo has no evidence/ directory.
 
 Exit codes — the run's own outcome, never Codex's exit code:
-  0  completed (gate: VERDICT PASS)      3  usage error
+  0  completed (gate: VERDICT PASS)      3  usage error (--help exits 0)
   1  gate: VERDICT FAIL, suite ran       4  environment or fence pre-flight failed
   2  gate: VERDICT SUITE_NOT_RUN         5  run did not complete, or left no
                                             trustworthy artifact
 EOF
-  exit $EX_USAGE
+  exit "${1:-$EX_USAGE}"
 }
 
 # ── the python side: JSON and hashing, where bash has no business ────────────
@@ -1033,26 +1054,53 @@ $extra"
   return 0
 }
 
+# The four mode words, and nothing else. Kept as a function because the dispatch
+# rule below has to ask the question twice: once about token one, and once about
+# whether that same token is also a path on disk.
+is_mode_word() { case "$1" in blind|scoped|review|gate) return 0 ;; *) return 1 ;; esac; }
+
 # ── main ─────────────────────────────────────────────────────────────────────
 main() {
+  # A help request is not a failed tool call. Asked before the argument count,
+  # because `--help` is the one token that is valid entirely on its own.
+  case "${1:-}" in -h|--help) usage 0 ;; esac
+  # A BARE invocation still refuses rather than inferring anything. Inference
+  # needs something to infer FROM, and a zero-argument command that spends
+  # ChatGPT quota on a typo is a worse default than a usage message.
   [ $# -ge 1 ] || usage
-  local mode="$1"; shift
-  case "$mode" in
-    blind|scoped|review|gate) ;;
-    -h|--help)   usage ;;
-    *) say "unknown mode '$mode' — expected 'blind', 'scoped', 'review' or 'gate'"; usage ;;
-  esac
+
+  local mode="" inferred=0
+  if is_mode_word "$1"; then
+    # 🛑 A repository may legally contain a file named `review` or `gate`. Token
+    # one is a mode word only when it is NOT also a path; when it is both, refuse
+    # rather than guess — guessing here silently selects a WIDER fence than the
+    # caller meant, which is the one class of mistake this wrapper must not make.
+    if [ -e "$1" ]; then
+      say "'$1' is both a mode and an existing path. Refusing rather than guessing."
+      say "  to mean the file:  ./$1"
+      say "  to mean the mode:  rename or move the file"
+      exit $EX_USAGE
+    fi
+    mode="$1"; shift
+  else
+    inferred=1
+  fi
 
   # Strict parsing. Everything not named here is refused rather than forwarded:
   # a flag this wrapper passes through unread is a flag that can widen the fence.
-  local scope_flag="--uncommitted" scope_val="" extra=""
+  # 🛑 scope_explicit is load-bearing and cannot be replaced by comparing VALUES.
+  # An explicitly typed `--uncommitted` produces exactly the same scope_flag and
+  # scope_val as the default does, so a value comparison cannot tell "the caller
+  # asked for a diff" from "the caller asked for nothing" — and the forbidden
+  # paths-plus-scope combination would sail through silently.
+  local scope_flag="--uncommitted" scope_val="" extra="" scope_explicit=0
   local blind_lines="" blind_binaries="" scoped_files="" scoped_bytes="" scoped_omitted=""
   local -a paths=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --uncommitted)
         [ "$mode" != gate ] || { say "--uncommitted applies to blind and review, not gate"; usage; }
-        scope_flag="--uncommitted"; scope_val=""; shift ;;
+        scope_flag="--uncommitted"; scope_val=""; scope_explicit=1; shift ;;
       --base|--commit)
         [ "$mode" != gate ] || { say "$1 applies to blind and review, not gate"; usage; }
         [ $# -ge 2 ] || { say "$1 needs a value"; usage; }
@@ -1060,11 +1108,11 @@ main() {
         # string still reaching argv. Refusing the shape costs nothing and closes
         # the neighbouring door to the one cycle 1 found open.
         case "$2" in -*) say "'$2' is not a ref — a branch or sha cannot begin with '-'"; usage ;; esac
-        scope_flag="$1"; scope_val="$2"; shift 2 ;;
+        scope_flag="$1"; scope_val="$2"; scope_explicit=1; shift 2 ;;
       -h|--help) usage ;;
       --) shift; extra="${extra:+$extra }$*"; break ;;
       -*)
-        say "refusing unknown option '$1'. ask-codex takes a mode, never a sandbox —"
+        say "refusing unknown option '$1'. ask-codex never takes a sandbox —"
         say "policy lives in ~/.codex-agent/<mode>.config.toml, not on this command line."
         usage ;;
       *)
@@ -1075,10 +1123,38 @@ main() {
         #
         # scoped is the one mode whose bare arguments are PATHS, so they are
         # collected separately and its question lives after `--`.
-        if [ "$mode" = scoped ]; then paths+=("$1"); shift; continue; fi
+        # scoped is the one NAMED mode whose bare arguments are paths; an
+        # inferred run does not yet know which fence it is, so it collects them
+        # the same way and decides below.
+        if [ "$mode" = scoped ] || [ "$inferred" = 1 ]; then paths+=("$1"); shift; continue; fi
         extra="${extra:+$extra }$1"; shift ;;
     esac
   done
+
+  # ── inference, before anything is copied or any git command runs ───────────
+  # Only ever between the two NARROW fences: both use the blind profile, so a
+  # wrong inference is a wrong INPUT, never a wider fence. `review` (whole tree)
+  # and `gate` (writable clone) are unreachable from here and need their word.
+  if [ "$inferred" = 1 ]; then
+    local p
+    # ${paths+...} rather than "${paths[@]}": under set -u, bash 3.2 treats an
+    # empty array expansion as an unbound variable and aborts.
+    for p in ${paths+"${paths[@]}"}; do
+      [ -e "$p" ] || { say "'$p' is not an existing path."
+                       say "if it is your question, put it after --:  ask-codex <paths> -- '$p'"
+                       exit $EX_USAGE; }
+    done
+    if [ ${#paths[@]} -gt 0 ]; then
+      [ "$scope_explicit" = 0 ] || {
+        say "paths and a scope flag are two different requests — pick one."
+        say "  the files as they are:  ask-codex ${paths[0]} ... -- '<question>'"
+        say "  the change as a diff:   ask-codex $scope_flag $scope_val -- '<question>'"
+        exit $EX_USAGE; }
+      mode=scoped
+    else
+      mode=blind
+    fi
+  fi
 
   # `codex exec review` rejects a PROMPT alongside ANY scope flag — measured for
   # --uncommitted, --base and --commit alike. So review instructions were never a
