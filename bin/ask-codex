@@ -709,6 +709,33 @@ PYEOF
 # rule, and a second identical file would be a second thing to keep in step.
 profile_for() { case "$1" in scoped) printf 'blind' ;; *) printf '%s' "$1" ;; esac; }
 
+# Does the CALLING harness's command sandbox make Codex unable to start?
+#
+# Codex opens WAL-mode SQLite state databases in CODEX_HOME at start-up —
+# state_5.sqlite, logs_2, queue_1, goals_1, memories_1, thread_history_1. A WAL
+# open has to create `-wal` and `-shm` beside them, so when a new file cannot be
+# created there the in-process app-server client fails with EPERM, the run never
+# starts, and the event stream is empty.
+#
+# PROVEN in both directions, four measurements, before this was written: the
+# probe refused and the real run exited 5 with a 0-byte stream; the probe
+# permitted and the real run completed. The dangerous direction — refusing a run
+# that would have worked — was measured and did not occur. Full record:
+# plans/bridge-v3/notes/spike-sandbox-predictor.md in the codex-bridge pod.
+#
+# 🛑 This deliberately does NOT predict the PATH-aliases failure. Codex carries
+# that one as "WARNING: proceeding, even though we could not create PATH
+# aliases" and continues past it, so a probe aimed there would refuse runs that
+# would have completed.
+sandbox_will_refuse_codex() {
+  local probe="$AGENT_HOME/.ask-codex-sandbox-probe.$$"
+  if ( umask 077; : > "$probe" ) 2>/dev/null; then
+    rm -f "$probe"
+    return 1
+  fi
+  return 0
+}
+
 preflight() {
   local mode="$1" base="$AGENT_HOME/config.toml"
   local prof="$AGENT_HOME/$(profile_for "$1").config.toml"
@@ -719,6 +746,16 @@ preflight() {
   [ -f "$base" ] || die "no base config at $base — run bootstrap.sh step 7.7" $EX_ENV
   [ -f "$prof" ] || die "no $(profile_for "$mode") profile at $prof — run bootstrap.sh step 7.7" $EX_ENV
   [ -e "$AGENT_HOME/auth.json" ] || die "no auth.json in $AGENT_HOME — run 'codex login', then bootstrap step 7.7" $EX_ENV
+
+  # Detect before spending. The observed failure copied every named byte in and
+  # THEN died with an empty stream; on a large fence that is not free.
+  if sandbox_will_refuse_codex; then
+    say "the calling harness's command sandbox denies writes to $AGENT_HOME."
+    say "Codex keeps its state databases there and cannot start without them, so"
+    say "this run would produce an empty event stream after copying everything in."
+    say "re-run with that sandbox bypassed. It is NOT this wrapper's fence —"
+    die "the fence is $AGENT_HOME/<profile>.config.toml and an empty cwd, which it does not contribute to" $EX_ENV
+  fi
 
   grep -qE '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"read-only"' "$base" \
     || die "$base no longer defaults to read-only — refusing to run" $EX_ENV
@@ -1314,7 +1351,22 @@ main() {
   cp "$RUN_SCRATCH/commands-run.txt" "$out/commands-run.txt" 2>/dev/null
 
   if [ "$status" != "ok" ]; then
-    say "the run did not complete cleanly: ${status:-the event stream could not be read}"
+    # Matched by PATTERN, never taken as "the last line" — which may be blank or
+    # cleanup noise. The real diagnostic was already on disk for four recorded
+    # incidents while the wrapper reported only the symptom, "the event stream is
+    # empty", which reads as a dead model.
+    local cause
+    cause=$(grep -m1 -E 'Operation not permitted|failed to initialize|could not create PATH aliases' \
+              "$RUN_SCRATCH/codex-stderr.log" 2>/dev/null || true)
+    if [ -n "$cause" ]; then
+      say "the run never started: $cause"
+      say "this is the calling harness's command sandbox, not Codex and not the fence."
+      say "Codex keeps its state databases in $AGENT_HOME and could not open them."
+      say "re-run with that sandbox bypassed."
+    else
+      say "the run did not complete cleanly: ${status:-the event stream could not be read}"
+      say "last stderr: $(tail -c 400 "$RUN_SCRATCH/codex-stderr.log" 2>/dev/null | tr '\n' ' ')"
+    fi
     say "evidence kept at $out"
     exit $EX_UNTRUSTWORTHY
   fi
