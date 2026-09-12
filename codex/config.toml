@@ -44,3 +44,31 @@ approval_policy = "never"
 # A profile that genuinely needs search overrides this in its own file, which
 # is a visible, committed edit — the same rule the network switch follows.
 web_search = "disabled"
+
+# ── the host skill catalog never belonged inside this fence ───────────────────
+# Measured 2026-09-11: the catalog reached EVERY fenced run from the first
+# session ever made (2026-08-09) onward — 43 skills, ~3,600 tokens, each one an
+# absolute path under $HOME/.agents/skills -> ~/dotfiles/skills, every one of
+# them denied by this fence. Codex is told it MUST use a skill matching the
+# task, so it announced one, failed to open it, and improvised. On 28% of real
+# runs. Evidence: context/ask-codex-usage-2026-09-11/REPORT.md in codex-bridge.
+#
+# The skills root is joined from home_dir(), NOT from CODEX_HOME, so repointing
+# CODEX_HOME does not close this. `--ignore-user-config` does not either: it
+# installs an EMPTY user layer, so the same match arm still pushes both roots.
+#
+# 🛑 Unknown keys inside [skills] are DROPPED SILENTLY — SkillsConfig carries
+# #[schemars(deny_unknown_fields)], which is schema-only with no serde
+# equivalent. A misspelling parses and vanishes, exactly like
+# `[tools] web_search = false`, which read like a fence and was not one. The
+# --live differential probe in scripts/test_ask_codex.sh misspells each key on
+# purpose for that reason.
+#
+# Restated here rather than inherited, because the base config every profile extends is a unit the wrapper names
+# and must be legible on its own — and must not soften if the base config is
+# ever loosened.
+[skills]
+include_instructions = false
+
+[skills.bundled]
+enabled = false
