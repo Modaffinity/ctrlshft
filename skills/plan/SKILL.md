@@ -136,7 +136,7 @@ When the vision is grounded and the branch map would be sound, proceed to Step 2
 **This is a selection, not the whole vision** — when the corpus is larger than one version should
 carry, choosing the branch map is the funnel's job: the four questions, gate zero, and the value
 floor, run at every version boundary. Full procedure: `references/FUNNEL.md` (a synced copy — the
-canonical version lives at `docs/vision/FUNNEL.md` in the `plan-skill` pod, gitignored there).
+canonical version lives at `docs/vision/FUNNEL.md` in the `ideas-skill` pod, gitignored there).
 
 Produce:
 
@@ -217,7 +217,7 @@ When no branches remain, this version is done — that is the **version boundary
 version is scoped with the funnel above, run the boundary ritual: the adversarial review, the
 deferral walk, reconciliation, and the value-floor test. Full procedure:
 `references/BOUNDARY_RITUAL.md` (a synced copy — the canonical version lives at
-`docs/vision/BOUNDARY_RITUAL.md` in the `plan-skill` pod, gitignored there).
+`docs/vision/BOUNDARY_RITUAL.md` in the `ideas-skill` pod, gitignored there).
 
 ---
 

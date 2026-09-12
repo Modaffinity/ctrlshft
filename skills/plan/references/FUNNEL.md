@@ -8,7 +8,7 @@ closes: vision/scope-items/v1-item-2.md — "the funnel", rung `ours`
 ---
 
 > **This is a copy, not the canonical source.** The original lives at `docs/vision/FUNNEL.md` in
-> the `plan-skill` pod, where `docs/**` is gitignored — so that copy is never itself committed
+> the `ideas-skill` pod, where `docs/**` is gitignored — so that copy is never itself committed
 > anywhere, and this dotfiles copy is the only version-controlled record of this content. It is
 > mirrored here so the `plan` skill's pointers resolve for every project, not only from inside
 > that pod's checkout. If the pod's working copy is revised, this file does not update itself —
