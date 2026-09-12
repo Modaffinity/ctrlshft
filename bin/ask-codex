@@ -68,16 +68,80 @@ readonly EX_OK=0 EX_GATE_FAIL=1 EX_GATE_NOT_RUN=2 EX_USAGE=3 EX_ENV=4 EX_UNTRUST
 
 RUN_TREE="" RUN_SCRATCH=""
 
+# ── the run log ──────────────────────────────────────────────────────────────
+# One line per INVOCATION, not per run that reached the model. A month of
+# evidence is dominated by failures that happened before any useful execution —
+# two preflight refusals, four empty streams — so a log recording only completed
+# runs would preserve exactly the gap it exists to close.
+#
+# Initialised HERE, at module level, before any dispatch can reach an exit path.
+# Initialising inside main() means an early refusal hits an unset variable under
+# set -u; and logging at each exit AS WELL AS from the trap double-logs. So:
+# module state, a LOGGED guard, and the trap as the single writer.
+# LOG_INFERRED is TRI-STATE: 1 inferred, 0 named, empty means no dispatch
+# decision was reached at all (--help, a bare invocation). Defaulting that to
+# "named" would report a fence the caller never chose.
+LOG_CAUSE="unknown" LOG_FENCE="none" LOG_PROFILE="" LOG_INFERRED=""
+LOG_FILES=0 LOG_BYTES=0 LOG_VERSION="" LOG_EVIDENCE="" LOGGED=0
+# Captured once, because the wrapper changes directory while building disposable
+# trees — $PWD during cleanup is not the repository the caller invoked this in.
+INVOKED_IN="$PWD"
+
+cause() { LOG_CAUSE="$1"; }
+
+# Derived only when nothing more specific was recorded. The explicit cause()
+# calls exist for the codes that AGGREGATE several distinct failures — 5 most of
+# all — because logging the number alone recreates the archaeology this field
+# exists to end.
+cause_from_code() {
+  case "$1" in
+    0) printf 'ok' ;;      1) printf 'gate-fail' ;;  2) printf 'gate-not-run' ;;
+    3) printf 'usage' ;;   4) printf 'env' ;;        5) printf 'untrustworthy' ;;
+    130|143|129) printf 'interrupt' ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+# ASK_CODEX_STATE overrides the DIRECTORY only, so the suite never appends to the
+# operator's real log. It is not a fence seam: it reaches no Codex argument, and
+# section 3b's argv assertions would catch it if it did.
+log_run() { # $1 = exit code
+  [ "$LOGGED" = 1 ] && return 0
+  LOGGED=1
+  [ "$LOG_CAUSE" = unknown ] && LOG_CAUSE=$(cause_from_code "$1")
+  local dir="${ASK_CODEX_STATE:-${XDG_STATE_HOME:-$REAL_HOME/.local/state}/ask-codex}"
+  # A full disk, an unwritable directory or a failed line must never turn a
+  # successful review into a wrapper failure. Every path here returns 0.
+  mkdir -p "$dir" 2>/dev/null || return 0
+  local line
+  line=$(_py logline "$LOG_CAUSE" "$1" "$LOG_FENCE" "$LOG_INFERRED" "$INVOKED_IN" \
+                     "$LOG_EVIDENCE" "$LOG_FILES" "$LOG_BYTES" "$SECONDS" \
+                     "$LOG_VERSION" "$LOG_PROFILE" 2>/dev/null) || return 0
+  # ONE O_APPEND write of one bounded line, so concurrent runs interleave whole
+  # lines rather than corrupting each other.
+  printf '%s\n' "$line" >> "$dir/runs.jsonl" 2>/dev/null || return 0
+  return 0
+}
+
 say()  { printf 'ask-codex: %s\n' "$1" >&2; }
 die()  { printf 'ask-codex: %s\n' "$1" >&2; exit "${2:-$EX_ENV}"; }
 
 cleanup() {
+  # FIRST LINE, or anything below changes $? before it is read.
+  local rc=$?
+  # Logged BEFORE the trees go: the log records this run's evidence directory,
+  # and a handler that cleans first leaves it naming something already gone.
+  log_run "$rc"
   # A tree left behind is a tree a later run could mistake for its own.
   [ -n "$RUN_TREE" ] && [ -d "$RUN_TREE" ] && rm -rf "$RUN_TREE"
   [ -n "$RUN_SCRATCH" ] && [ -d "$RUN_SCRATCH" ] && rm -rf "$RUN_SCRATCH"
   return 0
 }
-trap cleanup EXIT INT TERM HUP
+trap cleanup EXIT
+# A signal is an outcome too, and it needs its own token. Exiting here rather
+# than falling through means the EXIT trap runs cleanup exactly once — the
+# LOGGED guard makes the double path harmless either way.
+trap 'cause interrupt; exit 130' INT TERM HUP
 
 usage() {
   cat >&2 <<'EOF'
@@ -134,6 +198,7 @@ Exit codes — the run's own outcome, never Codex's exit code:
   2  gate: VERDICT SUITE_NOT_RUN         5  run did not complete, or left no
                                             trustworthy artifact
 EOF
+  [ "${1:-}" = 0 ] && cause help
   exit "${1:-$EX_USAGE}"
 }
 
@@ -696,6 +761,60 @@ elif op == 'gitconfig':
     else:
         print("STATUS=ok")
 
+elif op == 'logline':
+    cause, code, fence, inferred, repo, evidence, files, nbytes, secs, ver, prof = sys.argv[2:13]
+    import datetime
+    # Emitted through python because bash cannot escape JSON safely. NO prompt
+    # text, NO file contents, NO file names. repo_path DOES carry client and
+    # project names, which is stated rather than denied: the point of excluding
+    # prompts and filenames is proportion, not a privacy guarantee.
+    print(json.dumps({
+        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
+        "repo": os.path.basename(repo), "repo_path": repo,
+        "fence": fence,
+        "chosen": {"1": "inferred", "0": "named"}.get(inferred),
+        # Separate from `fence` on purpose: both `scoped` and an inferred run use
+        # the `blind` PROFILE, so the two are not the same fact.
+        "profile": prof or None,
+        "files": int(files or 0), "bytes": int(nbytes or 0), "seconds": int(secs or 0),
+        "cause": cause, "exit": int(code or 0),
+        "codex_version": ver.strip() or None,
+        "evidence": evidence or None,
+    }, separators=(',', ':')))
+
+elif op == 'cliversion':
+    # The CLI version is NOT on the exec event stream — measured: a real
+    # stream.jsonl carries thread.started, item.completed and turn.completed and
+    # no version field anywhere. It lives in the session ROLLOUT, whose filename
+    # embeds the session id the stream already gave us.
+    #
+    # 🛑 Never `codex --version`. The suite's stub truncates $STUB_ARGV on EVERY
+    # invocation, so a second spawn would overwrite the argv evidence and break
+    # both the existing assertions and the guarantee that a refused run sent
+    # Codex zero arguments. Reading a file spawns nothing.
+    home, sid = sys.argv[2], sys.argv[3]
+    if not sid:
+        sys.exit(0)
+    hit = ''
+    for root, dirs, names in os.walk(os.path.join(home, 'sessions')):
+        for n in names:
+            if sid in n and n.endswith('.jsonl'):
+                hit = os.path.join(root, n); break
+        if hit:
+            break
+    if not hit:
+        sys.exit(0)
+    try:
+        with open(hit, 'r', errors='replace') as fh:
+            for line in fh:
+                if 'cli_version' not in line:
+                    continue
+                v = json.loads(line).get('payload', {}).get('cli_version')
+                if v:
+                    print(v); break
+    except (OSError, json.JSONDecodeError):
+        pass
+
 else:
     sys.exit(f"unknown op {op}")
 PYEOF
@@ -1117,6 +1236,9 @@ is_mode_word() { case "$1" in blind|scoped|review|gate) return 0 ;; *) return 1 
 
 # ── main ─────────────────────────────────────────────────────────────────────
 main() {
+  # bash counts this for free once it is assigned; there is no other timing
+  # variable in this wrapper.
+  SECONDS=0
   # A help request is not a failed tool call. Asked before the argument count,
   # because `--help` is the one token that is valid entirely on its own.
   case "${1:-}" in -h|--help) usage 0 ;; esac
@@ -1138,8 +1260,12 @@ main() {
       exit $EX_USAGE
     fi
     mode="$1"; shift
+    LOG_FENCE="$mode" LOG_PROFILE="$(profile_for "$mode")" LOG_INFERRED=0
   else
     inferred=1
+    # Set HERE, not after inference: the path-does-not-exist refusal below exits
+    # from inside the inference block, and that invocation WAS an inferred one.
+    LOG_INFERRED=1
   fi
 
   # Strict parsing. Everything not named here is refused rather than forwarded:
@@ -1211,6 +1337,7 @@ main() {
       mode=blind
     fi
   fi
+  LOG_FENCE="$mode" LOG_PROFILE="$(profile_for "$mode")"
 
   # `codex exec review` rejects a PROMPT alongside ANY scope flag — measured for
   # --uncommitted, --base and --commit alike. So review instructions were never a
@@ -1249,6 +1376,7 @@ main() {
   out=$(new_evidence_dir "$mode" "$repo") \
     || die "no evidence/ here and no codex-bridge pod at $POD_EVIDENCE — refusing to run unrecorded" $EX_ENV
   mkdir -p "$out" || die "could not create $out" $EX_ENV
+  LOG_EVIDENCE="$(basename "$out")"
 
   # Which policy actually governed this run, recorded so a later reader can tell
   # a fenced run from an unfenced one instead of taking the report's word. The
@@ -1277,7 +1405,9 @@ main() {
     say "seeding a disposable clone of $(basename "$repo") at $RUN_TREE"
     seeded=$(seed_tree "$repo" "$RUN_TREE" "$head") || exit $?
     assert_tree_matches "$repo" "$RUN_TREE" "$out" \
-      || die "seed assertion failed; the mismatch is at $out/seed-mismatch.diff" $EX_UNTRUSTWORTHY
+      || { cause seed-mismatch
+           die "seed assertion failed; the mismatch is at $out/seed-mismatch.diff" $EX_UNTRUSTWORTHY; }
+    LOG_FILES="$seeded"
     say "$seeded file(s) carried in; tree matches the working tree"
     [ -e "$RUN_TREE/$REPORT_NAME" ] \
       && die "$REPORT_NAME already exists in this repository — rename it; the wrapper cannot tell a stale report from a fresh one" $EX_ENV
@@ -1302,6 +1432,7 @@ main() {
     esac
     set -- $dstat
     blind_lines="$2"; blind_binaries="$3"
+    LOG_FILES="$blind_binaries" LOG_BYTES="$blind_lines"
     cp "$RUN_SCRATCH/change.diff" "$out/change.diff"
     RUN_TREE=$(mktemp -d "${TMPDIR:-/tmp}/ask-codex-blind-XXXXXX") \
       || die "could not create the empty working directory" $EX_ENV
@@ -1325,6 +1456,7 @@ main() {
     esac
     set -- $mstat
     scoped_files="$2"; scoped_bytes="$3"; scoped_omitted="${4:-0}"
+    LOG_FILES="$scoped_files" LOG_BYTES="$scoped_bytes"
     [ "$scoped_omitted" != 0 ] \
       && say "note: $scoped_omitted directory(ies) inside what you named were not copied (.git, node_modules, __pycache__, .codex) — listed in the report"
     printf '%s\n' "${paths[@]}" > "$out/scoped-paths.txt"
@@ -1350,6 +1482,11 @@ main() {
   # is exactly the run whose record of what it actually executed matters most.
   cp "$RUN_SCRATCH/commands-run.txt" "$out/commands-run.txt" 2>/dev/null
 
+  # Every fence behaviour in this project was measured on 0.147, five silent
+  # profile-failure modes are known, and an upgrade that stops a fence binding
+  # announces nothing. Read from the rollout, never by spawning codex again.
+  LOG_VERSION=$(_py cliversion "$AGENT_HOME" "$session" 2>/dev/null || true)
+
   if [ "$status" != "ok" ]; then
     # Matched by PATTERN, never taken as "the last line" — which may be blank or
     # cleanup noise. The real diagnostic was already on disk for four recorded
@@ -1358,6 +1495,7 @@ main() {
     local cause
     cause=$(grep -m1 -E 'Operation not permitted|failed to initialize|could not create PATH aliases' \
               "$RUN_SCRATCH/codex-stderr.log" 2>/dev/null || true)
+    cause no-stream
     if [ -n "$cause" ]; then
       say "the run never started: $cause"
       say "this is the calling harness's command sandbox, not Codex and not the fence."
@@ -1374,7 +1512,7 @@ main() {
   local body verdict="" suite="" parsed
   if [ "$mode" = gate ]; then
     parsed=$(gate_verdict "$RUN_TREE/$REPORT_NAME") \
-      || { say "evidence kept at $out"; exit $EX_UNTRUSTWORTHY; }
+      || { cause no-report; say "evidence kept at $out"; exit $EX_UNTRUSTWORTHY; }
     verdict="${parsed%%	*}"; suite="${parsed#*	}"
     body=$(cat "$RUN_TREE/$REPORT_NAME")
 
@@ -1385,6 +1523,7 @@ main() {
     if [ "$verdict" = PASS ] || [ "$verdict" = FAIL ]; then
       local corr; corr=$(_py corroborate "$suite" "$RUN_SCRATCH/commands-run.txt")
       if [ "$corr" != ok ]; then
+        cause uncorroborated
         say "refusing this verdict: $corr"
         say "the report says $verdict, and the event stream does not support it."
         say "evidence kept at $out — commands-run.txt lists what actually ran"
@@ -1393,7 +1532,7 @@ main() {
     fi
   else
     body=$(cat "$RUN_SCRATCH/agent-message.txt")
-    [ -n "${body//[[:space:]]/}" ] || { say "the review came back empty"; say "evidence kept at $out"; exit $EX_UNTRUSTWORTHY; }
+    [ -n "${body//[[:space:]]/}" ] || { cause empty-body; say "the review came back empty"; say "evidence kept at $out"; exit $EX_UNTRUSTWORTHY; }
   fi
 
   # Frontmatter is stamped HERE, by the wrapper — attribution applied by the
