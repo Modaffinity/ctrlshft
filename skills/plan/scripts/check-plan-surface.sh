@@ -52,10 +52,27 @@ for f in INDEX.md decisions.md assumptions.md questions.md .plan.yaml; do
   [ -f "$D/$f" ] || bad "C3 missing $f"
 done
 
+# ---- C4: no duplicate IDs ---------------------------------------------------
+echo "C4  no duplicate IDs"
+tmpdir_c4="$(mktemp -d)" || { echo "FATAL: mktemp -d failed"; exit 1; }
+[ -n "$tmpdir_c4" ] || { echo "FATAL: mktemp -d returned empty string"; exit 1; }
+trap 'rm -rf "$tmpdir_c4" "${tmpdir:-}"' EXIT
+
+# Run the generator and capture stderr to check for duplicates
+python3 "$GENERATOR" --stdout "$D" >"$tmpdir_c4/output.txt" 2>"$tmpdir_c4/stderr.txt"
+
+if grep -q "WARNING: Duplicate" "$tmpdir_c4/stderr.txt"; then
+  while IFS= read -r warning; do
+    if [[ "$warning" =~ "WARNING: Duplicate" ]]; then
+      bad "C4 $warning"
+    fi
+  done < "$tmpdir_c4/stderr.txt"
+fi
+
 # ---- C2: regeneration is a no-op -------------------------------------------
 echo "C2  regeneration no-op"
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "$tmpdir"' EXIT
+tmpdir="$(mktemp -d)" || { echo "FATAL: mktemp -d failed"; exit 1; }
+[ -n "$tmpdir" ] || { echo "FATAL: mktemp -d returned empty string"; exit 1; }
 
 # Copy log.jsonl to temp, generate there, then diff against the real surface
 cp "$D/log.jsonl" "$tmpdir/log.jsonl"

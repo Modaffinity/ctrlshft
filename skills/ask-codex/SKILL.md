@@ -29,6 +29,16 @@ two different requests). Each refusal names the alternative.
 Every run files `evidence/codex-<mode>-<stamp>/` in the current repo — the report, the exact
 invocation, the raw event stream, and what the model actually executed.
 
+### How to choose — `--depth`, or `--model` / `--effort` outright
+
+- A quick check → `--depth quick` (low effort).
+- A review → the default `normal` (medium), or `--depth deep` (high) when the change is subtle.
+- A gate, or an adversarial review you will act on → `--depth deep`, or `--effort xhigh` and above.
+- Higher effort spends more quota; `ultra` spends the most. Depth changes how hard Codex thinks, never
+  what it can reach.
+- Level and model names come from Codex's model cache, not from this page: a refused value lists what
+  is available.
+
 ## The two words you still type
 
 Inference never selects these. A wider fence is asked for by name.
@@ -106,12 +116,22 @@ path. The command came back **"This command requires approval."** The session th
 Nothing went wrong with its reasoning. It wanted to finish, the fenced door was shut, and an open
 door was right there.
 
-*That trigger is closed; `ask-codex` no longer prompts. The rule is not, because an approval prompt
-was only one way the door can shut — a missing profile, a failed `bootstrap.sh`, an expired login and
-a harness sandbox all produce the same situation and the same temptation.*
+*That trigger is closed where the install is complete: `"ask-codex *"` in `sandbox.excludedCommands`
+(user settings, from `~/dotfiles/.claude/settings.json` via `bootstrap.sh`) runs it outside Claude
+Code's command sandbox, with no prompt, in any pod — measured 2026-09-13 from a fresh sandboxed
+session in a pod with default settings. The rule is not closed, because an approval prompt was only
+one way the door can shut — a missing profile, a failed `bootstrap.sh`, an expired login and a
+missing exclusion all produce the same situation and the same temptation.*
+
+**Invoke it by name.** The exclusion matches command text: `ask-codex …` and `cd <dir> && ask-codex …`
+run outside the sandbox; `~/.local/bin/ask-codex …` by absolute path does **not**, and is refused as
+`install incomplete — stop`. Never re-run it with the sandbox disabled — that is the prompt again.
 
 **So: a blocked, missing or failing `ask-codex` is a stopping condition, not a routing decision.**
-Report what happened and what it needs. Falling back to MCP converts a permission prompt into a
+Report what happened and what it needs. **`ask-codex doctor` says which part is missing** — one
+PASS / WARN / FAIL line per part of the install with the remedy, no quota, no Codex — so run it and
+quote its FAIL lines. A `WARN certified` means Codex updated itself since the live suite last passed:
+the fences were measured on an older binary. Falling back to MCP converts a permission prompt into a
 silent loss of containment, and whoever asked for containment will never know they did not get it.
 
 The one exception is where containment was never the point: free-form thinking-out-loud, no untrusted
@@ -146,6 +166,10 @@ reached Codex — those are most of the interesting ones. Fence, inferred or nam
 duration, a stable cause token, the evidence directory, the Codex CLI version. No prompt text, no file
 names; repository paths *are* in it. Nothing to maintain: it exists so "how often does this fail, and
 how?" has an answer that is not archaeology.
+
+**When the line cannot be written, the wrapper says so on stderr** — `run log NOT written: <path>` —
+and the run keeps its own exit code. There is no fallback log: that stderr line is the record, so
+quote it when you report the run.
 
 ## Cost
 

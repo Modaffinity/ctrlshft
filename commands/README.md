@@ -18,7 +18,7 @@ User types /work → commands/work.md → loads skills/do-work/SKILL.md → exec
 |---------|-------|---------|
 | `/address-review` | `review-pr-copilot` | Fetch and address Copilot review comments on active PR |
 | `/audit` | `codebase-audit` | Ruthless audit reporting only real problems |
-| `/carve` | `plan` | Vague idea → dispatchable CortexOS goals; resumes an existing plan dir |
+| `/carve` | `plan` → `references/V1_LEGACY.md` | Vague idea → dispatchable CortexOS goals; resumes an existing plan dir |
 | `/check` | `session-close` | Pre-flight checklist before ending a coding session |
 | `/cmd` | *external* (`~/cmd/CLAUDE.md`) | Routes to `~/cmd/tools/skills/cmd-<subcommand>/` — not a `skills/` skill |
 | `/commit` | `atomic-commits` | Checkpoint work with atomic conventional commits |
@@ -26,7 +26,7 @@ User types /work → commands/work.md → loads skills/do-work/SKILL.md → exec
 | `/document` | `document` | Write, update, or audit documentation |
 | `/explore` | `explore` | Deep codebase exploration via parallel subagents |
 | `/finish` | `finish-branch` | Close out a branch — green-suite gate, integrate, tear down |
-| `/plan` | `architect` | Implementation plan with vertical slices |
+| `/plan` | `plan` | One workstream from idea to documentation: brief, spec, plan, execution, docs |
 | `/preflight` | `pr-preflight` | Exhaustive pre-PR audit that front-runs review tools |
 | `/research` | `research` | Tiered research — scan / check / dive; paid tiers ask first |
 | `/review` | `code-review` | Focused review of staged or recent changes |

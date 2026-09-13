@@ -57,6 +57,9 @@ readonly REAL_HOME
 readonly AGENT_HOME="$REAL_HOME/.codex-agent"
 readonly REPORT_NAME=".ask-codex-report.md"
 readonly POD_EVIDENCE="$REAL_HOME/Library/CloudStorage/Dropbox/LLM/cortexos-pods/hq/codex-bridge/evidence"
+# Read by `doctor` only, for the sandbox exclusion and the permission rule. User
+# scope is the scope Slice A's acceptance proved effective in every pod.
+readonly CLAUDE_SETTINGS="$REAL_HOME/.claude/settings.json"
 readonly STALE_TREE_HOURS=24
 
 # Unconditional, never ${CODEX_HOME:-...}: an inherited value would put the run
@@ -83,6 +86,9 @@ RUN_TREE="" RUN_SCRATCH=""
 # "named" would report a fence the caller never chose.
 LOG_CAUSE="unknown" LOG_FENCE="none" LOG_PROFILE="" LOG_INFERRED=""
 LOG_FILES=0 LOG_BYTES=0 LOG_VERSION="" LOG_EVIDENCE="" LOGGED=0
+# Set ONLY from `_py resolve`'s validated output, never from caller text — so a
+# refused value logs null, and these three are safe to place in codex's argv.
+LOG_DEPTH="" LOG_MODEL="" LOG_EFFORT=""
 # Captured once, because the wrapper changes directory while building disposable
 # trees — $PWD during cleanup is not the repository the caller invoked this in.
 INVOKED_IN="$PWD"
@@ -105,22 +111,37 @@ cause_from_code() {
 # ASK_CODEX_STATE overrides the DIRECTORY only, so the suite never appends to the
 # operator's real log. It is not a fence seam: it reaches no Codex argument, and
 # section 3b's argv assertions would catch it if it did.
+state_dir() { printf '%s' "${ASK_CODEX_STATE:-${XDG_STATE_HOME:-$REAL_HOME/.local/state}/ask-codex}"; }
+
 log_run() { # $1 = exit code
   [ "$LOGGED" = 1 ] && return 0
   LOGGED=1
   [ "$LOG_CAUSE" = unknown ] && LOG_CAUSE=$(cause_from_code "$1")
-  local dir="${ASK_CODEX_STATE:-${XDG_STATE_HOME:-$REAL_HOME/.local/state}/ask-codex}"
+  local dir; dir=$(state_dir)
   # A full disk, an unwritable directory or a failed line must never turn a
-  # successful review into a wrapper failure. Every path here returns 0.
-  mkdir -p "$dir" 2>/dev/null || return 0
-  local line
+  # successful review into a wrapper failure, so every path returns 0 — but none
+  # returns QUIETLY. Inside a caller's command sandbox this directory is
+  # unwritable, and a silent return lost the one record of exactly the refusals
+  # the log exists for. There is no fallback location: this stderr line IS the
+  # record, and a second log in $TMPDIR would be lost per session anyway.
+  local log="$dir/runs.jsonl" line
+  mkdir -p "$dir" 2>/dev/null || { log_lost "$log" "cannot create its directory"; return 0; }
   line=$(_py logline "$LOG_CAUSE" "$1" "$LOG_FENCE" "$LOG_INFERRED" "$INVOKED_IN" \
                      "$LOG_EVIDENCE" "$LOG_FILES" "$LOG_BYTES" "$SECONDS" \
-                     "$LOG_VERSION" "$LOG_PROFILE" 2>/dev/null) || return 0
+                     "$LOG_VERSION" "$LOG_PROFILE" \
+                     "$LOG_DEPTH" "$LOG_MODEL" "$LOG_EFFORT" 2>/dev/null) \
+    || { log_lost "$log" "could not assemble the line"; return 0; }
   # ONE O_APPEND write of one bounded line, so concurrent runs interleave whole
-  # lines rather than corrupting each other.
-  printf '%s\n' "$line" >> "$dir/runs.jsonl" 2>/dev/null || return 0
+  # lines rather than corrupting each other. The braces are load-bearing: in
+  # `>> file 2>/dev/null` the append fails before 2>/dev/null applies, and bash
+  # prints its own error beside the one below.
+  { printf '%s\n' "$line" >> "$log"; } 2>/dev/null || { log_lost "$log" "the append was refused"; return 0; }
   return 0
+}
+
+log_lost() { # log-path  what-failed
+  printf 'ask-codex: run log NOT written: %s (%s) — this message is the only record of this run\n' \
+    "$1" "$2" >&2
 }
 
 say()  { printf 'ask-codex: %s\n' "$1" >&2; }
@@ -185,6 +206,18 @@ never a flag you pass: there is no sandbox option, and there never will be.
         Codex runs this repo's suite inside a disposable clone and files a
         verdict (profile: gate, workspace-write confined to that clone).
 
+  ask-codex doctor
+        Checks the install: one PASS / WARN / FAIL line per part, with the
+        remedy on every FAIL. Spends no quota and never starts Codex. Exit 0
+        unless something FAILs.
+
+How hard Codex thinks — never how far it can reach. Any mode takes these:
+  --depth quick|normal|deep   a model and effort pair from ~/.codex-agent/depths.toml
+                              (default: normal)
+  --model <slug>              a model listed in ~/.codex-agent/models_cache.json
+  --effort <level>            a level that model supports. Higher spends more quota.
+  A value that is not listed is refused, naming what is.
+
 The four modes above remain valid and unchanged — `ask-codex scoped docs/ -- 'q'`
 means exactly what it always did. They are spelled out because naming the mode
 is still the way to reach `review` and `gate`, and the way to be explicit.
@@ -215,6 +248,40 @@ def read_z(p):
 
 def read_bytes_z(b):
     return [x.decode('utf-8', 'surrogateescape') for x in b.split(b'\0') if x]
+
+def read_tables(path):
+    # The one TOML reader here: `[table]` headers, `key = value`, `#` comments.
+    # Top-level keys live under ''. Values are kept RAW — `false` and `"false"`
+    # stay different. No tomllib: macOS system python3 may predate 3.11. Valid TOML
+    # it does not understand (dotted keys, inline tables, quoted headers) leaves a
+    # key unfound, and every caller refuses an unfound key — the safe direction.
+    try:
+        lines = open(path, errors='replace').read().splitlines()
+    except OSError:
+        return None
+    # A multiline string can CONTAIN `key = value` and `[table]` lines while
+    # setting none of them, and a line-at-a-time reader would count them. No
+    # deployed config uses one, so a file that does is refused as unreadable
+    # rather than half-parsed (found by the whole-v4 review).
+    if any('"""' in l or "'''" in l for l in lines):
+        return None
+    table, tables = '', {'': {}}
+    for raw in lines:
+        line = raw.split('#', 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith('[['):
+            table = None
+        elif line.startswith('[') and line.endswith(']'):
+            table = ''.join(line[1:-1].split())
+            tables.setdefault(table, {})
+        elif '=' in line and table is not None:
+            k, v = (x.strip() for x in line.split('=', 1))
+            tables[table][k] = v
+    return tables
+
+def unquote(v):
+    return v[1:-1] if v and len(v) >= 2 and v[0] == v[-1] == '"' else None
 
 if op == 'seed':
     # Two jobs, done here because both turn on exact path handling that shell
@@ -762,7 +829,8 @@ elif op == 'gitconfig':
         print("STATUS=ok")
 
 elif op == 'logline':
-    cause, code, fence, inferred, repo, evidence, files, nbytes, secs, ver, prof = sys.argv[2:13]
+    (cause, code, fence, inferred, repo, evidence, files, nbytes, secs, ver, prof,
+     depth, model, effort) = sys.argv[2:16]
     import datetime
     # Emitted through python because bash cannot escape JSON safely. NO prompt
     # text, NO file contents, NO file names. repo_path DOES carry client and
@@ -780,6 +848,8 @@ elif op == 'logline':
         "cause": cause, "exit": int(code or 0),
         "codex_version": ver.strip() or None,
         "evidence": evidence or None,
+        # null unless resolved: the caller's refused string is never recorded.
+        "depth": depth or None, "model": model or None, "effort": effort or None,
     }, separators=(',', ':')))
 
 elif op == 'cliversion':
@@ -815,6 +885,152 @@ elif op == 'cliversion':
     except (OSError, json.JSONDecodeError):
         pass
 
+elif op == 'skillskeys':
+    # The two keys that close the host skill catalog, read by TABLE, never by
+    # line. Unknown keys inside [skills] are dropped silently (measured, bridge-v3
+    # Task 3), so `include_instruction`, or `enabled = false` one table too high,
+    # parses, looks right to a grep, and hands Codex 43 skill paths its fence
+    # denies. No tomllib: macOS system python3 may predate 3.11.
+    #
+    # A deliberately small reader: table headers, `key = value`, `#` comments.
+    # Valid TOML it does not understand — a dotted `skills.include_instructions`
+    # key, an inline table, a quoted header — leaves a key unfound and the file is
+    # refused. That is the safe direction; guessing is not.
+    path = sys.argv[2]
+    tables = read_tables(path)
+    if tables is None:
+        print("cannot be read"); sys.exit(0)
+    need = [(('skills', 'include_instructions'), 'include_instructions = false under [skills]'),
+            (('skills.bundled', 'enabled'), 'enabled = false under [skills.bundled]')]
+    missing = [msg for (t, k), msg in need if tables.get(t, {}).get(k) != 'false']
+    print('ok' if not missing else 'does not set ' + ' or '.join(missing))
+
+elif op == 'resolve':
+    # Depth, model and effort: from a CLOSED list, checked against Codex's own
+    # model cache, before codex receives a single argument. The last widening of
+    # this argv ran a command outside the sandbox (Task 5, cycle 1), so no caller
+    # string is passed through: every value printed on the OK line has matched a
+    # strict shape AND appears in the cache.
+    #
+    # The configured mapping is validated WHOLE on every run, whichever depth was
+    # asked for — a broken [deep] must not wait for the first caller who asks.
+    #
+    # Prints one line: `OK <depth> <model> <effort>`, `USAGE <cause> <message>`
+    # (exit 3, a caller mistake) or `ENV <message>` (exit 4, the install).
+    import re
+    home, want_depth, want_model, want_effort = sys.argv[2:6]
+    DEPTHS = ['quick', 'normal', 'deep']
+    EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+    SLUG = re.compile(r'^[a-z0-9][a-z0-9.-]*$')
+    dpath = os.path.join(home, 'depths.toml')
+    cpath = os.path.join(home, 'models_cache.json')
+
+    def env(msg):
+        print('ENV ' + msg); sys.exit(0)
+
+    def usage(cause, msg):
+        print(f'USAGE {cause} {msg}'); sys.exit(0)
+
+    try:
+        cache = json.load(open(cpath))
+    except (OSError, ValueError) as e:
+        env(f"cannot read the model cache {cpath} ({e}) — Codex writes it; run one Codex session, then retry")
+    listed = {}
+    for m in (cache.get('models') or []) if isinstance(cache, dict) else []:
+        if isinstance(m, dict) and m.get('visibility') == 'list' and isinstance(m.get('slug'), str):
+            levels = [l.get('effort') if isinstance(l, dict) else l
+                      for l in (m.get('supported_reasoning_levels') or [])]
+            listed[m['slug']] = [l for l in levels if isinstance(l, str)]
+    names = ' '.join(listed) or '(none listed)'
+
+    tables = read_tables(dpath)
+    if tables is None:
+        env(f"cannot read {dpath} — run ~/dotfiles/bin/bootstrap.sh (step 7.7 deploys it)")
+    for d in DEPTHS:
+        t = tables.get(d)
+        if t is None:
+            env(f"{dpath} has no [{d}] table — every depth must be configured")
+        for k in ('model', 'effort'):
+            if k not in t:
+                env(f"{dpath} [{d}] has no {k}")
+        m, e = unquote(t['model']), unquote(t['effort'])
+        if not (m and SLUG.match(m) and m in listed):
+            env(f"{dpath} [{d}] model {t['model']} is not listed in {cpath} — listed: {names}")
+        if not (e in EFFORTS and e in listed[m]):
+            env(f"{dpath} [{d}] effort {t['effort']} is not one {m} supports: {' '.join(listed[m])}")
+    base = read_tables(os.path.join(home, 'config.toml')) or {}
+    if 'model' in base.get('', {}):
+        cm = unquote(base['']['model'])
+        if not (cm and SLUG.match(cm) and cm in listed):
+            env(f"{home}/config.toml model {base['']['model']} is not listed in {cpath} — listed: {names}")
+
+    if want_depth and want_depth not in DEPTHS:
+        usage('usage', f"unknown depth '{want_depth}' — choose one of: {' '.join(DEPTHS)}")
+    depth = want_depth or 'normal'
+    model, effort = unquote(tables[depth]['model']), unquote(tables[depth]['effort'])
+    if want_model:
+        if not (SLUG.match(want_model) and want_model in listed):
+            usage('bad-model', f"model '{want_model}' is not listed in the model cache — available: {names}")
+        model = want_model
+    if want_effort:
+        if want_effort not in EFFORTS:
+            usage('bad-effort', f"'{want_effort}' is not an effort level — {model} supports: {' '.join(listed[model])}")
+        effort = want_effort
+    if effort not in listed[model]:
+        usage('bad-effort', f"{model} does not support effort '{effort}' — it supports: {' '.join(listed[model])}")
+    print(f'OK {depth} {model} {effort}')
+
+elif op == 'settingscheck':
+    # doctor's two checks on the Claude Code settings file. Prints exactly two
+    # lines, `exclusion <ok|remedy>` and `permission <ok|remedy>`.
+    path = sys.argv[2]
+    try:
+        s = json.load(open(path))
+        if not isinstance(s, dict):
+            raise ValueError('not a JSON object')
+    except (OSError, ValueError) as e:
+        print(f'exclusion cannot read {path} ({e})')
+        print(f'permission cannot read {path} ({e})')
+        sys.exit(0)
+    # TYPES FIRST. An object is iterable and a string supports `in`, so a
+    # structurally wrong file used to pass both checks — or, with a string where an
+    # object belongs, raise and print neither line (found by the whole-v4 review).
+    # Claude Code ignores these keys unless they are arrays of strings.
+    def child(parent, key):
+        return parent.get(key) if isinstance(parent, dict) else None
+
+    def strings(v):
+        return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+    ex = child(child(s, 'sandbox'), 'excludedCommands')
+    if not strings(ex):
+        print(f'exclusion {path}: sandbox.excludedCommands is not an array of strings, so Claude Code does not apply it — make it one, holding "ask-codex *", in ~/dotfiles/.claude/settings.json, then run bootstrap.sh')
+    elif any(e in ('ask-codex *', 'ask-codex:*') for e in ex):
+        print('exclusion ok')
+    elif 'ask-codex' in ex:
+        print('exclusion the entry is the bare name "ask-codex", which matches nothing — replace it with "ask-codex *" in ~/dotfiles/.claude/settings.json, then run bootstrap.sh')
+    else:
+        print(f'exclusion {path} has no "ask-codex *" in sandbox.excludedCommands — add it in ~/dotfiles/.claude/settings.json, then run bootstrap.sh')
+    allow = child(child(s, 'permissions'), 'allow')
+    if not strings(allow):
+        print(f'permission {path}: permissions.allow is not an array of strings, so Claude Code does not apply it — every call would ask for approval')
+    else:
+        print('permission ok' if 'Bash(ask-codex:*)' in allow
+              else f'permission {path} has no Bash(ask-codex:*) in permissions.allow — every call would ask for approval')
+
+elif op == 'normaldrift':
+    # config.toml's model lines are kept for non-wrapper callers (the MCP path);
+    # a run with no --depth uses depths.toml [normal]. Disagreement is not a
+    # fault, but two defaults that differ silently are worth one line.
+    home = sys.argv[2]
+    base = (read_tables(os.path.join(home, 'config.toml')) or {}).get('', {})
+    normal = (read_tables(os.path.join(home, 'depths.toml')) or {}).get('normal', {})
+    diffs = [f'config.toml {ck} = {base[ck]} but depths.toml [normal] {dk} = {normal.get(dk)}'
+             for ck, dk in (('model', 'model'), ('model_reasoning_effort', 'effort'))
+             if ck in base and base[ck] != normal.get(dk)]
+    print('ok' if not diffs
+          else '; '.join(diffs) + ' — the MCP path and an ask-codex run with no --depth think differently hard')
+
 else:
     sys.exit(f"unknown op {op}")
 PYEOF
@@ -846,6 +1062,20 @@ profile_for() { case "$1" in scoped) printf 'blind' ;; *) printf '%s' "$1" ;; es
 # that one as "WARNING: proceeding, even though we could not create PATH
 # aliases" and continues past it, so a probe aimed there would refuse runs that
 # would have completed.
+# What both harness-sandbox sites say. It sends the caller to the INSTALL, never
+# around the harness: the earlier "re-run with that sandbox bypassed" told every
+# calling agent to trigger an approval prompt, in every pod whose settings lacked
+# the exclusion — which was every pod but codex-bridge.
+say_install_incomplete() {
+  say "install incomplete — stop. ask-codex must run outside the calling harness's command"
+  say "sandbox: \"ask-codex *\" belongs in sandbox.excludedCommands in ~/.claude/settings.json —"
+  say "the pattern, because a bare \"ask-codex\" entry matches nothing"
+  say "(source ~/dotfiles/.claude/settings.json, deployed by ~/dotfiles/bin/bootstrap.sh)."
+  say "do not re-run with the sandbox disabled — that puts an approval prompt on every call,"
+  say "and the harness sandbox is not this wrapper's fence: the fence is"
+  say "$AGENT_HOME/<profile>.config.toml and an empty cwd."
+}
+
 sandbox_will_refuse_codex() {
   local probe="$AGENT_HOME/.ask-codex-sandbox-probe.$$"
   if ( umask 077; : > "$probe" ) 2>/dev/null; then
@@ -869,11 +1099,11 @@ preflight() {
   # Detect before spending. The observed failure copied every named byte in and
   # THEN died with an empty stream; on a large fence that is not free.
   if sandbox_will_refuse_codex; then
-    say "the calling harness's command sandbox denies writes to $AGENT_HOME."
-    say "Codex keeps its state databases there and cannot start without them, so"
-    say "this run would produce an empty event stream after copying everything in."
-    say "re-run with that sandbox bypassed. It is NOT this wrapper's fence —"
-    die "the fence is $AGENT_HOME/<profile>.config.toml and an empty cwd, which it does not contribute to" $EX_ENV
+    cause harness-sandbox
+    say "the calling harness's command sandbox denies writes to $AGENT_HOME, where Codex"
+    say "keeps the state databases it cannot start without. Nothing was copied in."
+    say_install_incomplete
+    exit $EX_ENV
   fi
 
   grep -qE '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"read-only"' "$base" \
@@ -918,6 +1148,15 @@ preflight() {
     grep -qE '^[[:space:]]*web_search[[:space:]]*=[[:space:]]*"disabled"' "$prof" \
       || die "$prof does not disable web search — blind would not be blind" $EX_ENV
   fi
+
+  # The skill catalog was the one fence element only CONFIGURED, never asserted
+  # (bridge-v3 close-out). Both files, because a profile can override the base.
+  local f sk
+  for f in "$base" "$prof"; do
+    sk=$(_py skillskeys "$f") || die "could not read the [skills] keys in $f" $EX_ENV
+    [ "$sk" = ok ] \
+      || die "$f $sk — Codex would be handed the host skill catalog, whose paths this fence denies" $EX_ENV
+  done
 }
 
 # Remove trees a killed run could not clean up. Reported, never silent: a sweep
@@ -1086,7 +1325,7 @@ run_review() {
   # No caller text reaches this argv at all — main() refuses review instructions
   # outright, because codex has nowhere to put them. The only caller-controlled
   # element left is scope_val, whose shape is checked in the parser.
-  local -a argv=("$CODEX_BIN" exec -p review --json review)
+  local -a argv=("$CODEX_BIN" exec -p review -m "$LOG_MODEL" -c "model_reasoning_effort=\"$LOG_EFFORT\"" --json review)
   case "$scope_flag" in
     --uncommitted) argv+=(--uncommitted) ;;
     --base)        argv+=(--base "$scope_val") ;;
@@ -1125,7 +1364,7 @@ the caller reads your answer, and a citation nobody can follow is not one."
 
 The caller asks: $extra"
 
-  local -a argv=("$CODEX_BIN" exec -p blind --json --skip-git-repo-check -C "$dir" -)
+  local -a argv=("$CODEX_BIN" exec -p blind -m "$LOG_MODEL" -c "model_reasoning_effort=\"$LOG_EFFORT\"" --json --skip-git-repo-check -C "$dir" -)
   printf '%s\n' "${argv[*]}" > "$out/invocation.txt"
   printf '%s\n' "$prompt" > "$out/prompt.txt"
   "${argv[@]}" < "$out/prompt.txt" \
@@ -1159,7 +1398,7 @@ $(cat "$RUN_SCRATCH/change.diff")
   # No caller-controlled text reaches argv: the prompt travels on stdin, which is
   # what `-` names. That is the same door cycle 1 found open on the review path,
   # closed here by construction rather than by refusing the feature.
-  local -a argv=("$CODEX_BIN" exec -p blind --json --skip-git-repo-check -C "$empty" -)
+  local -a argv=("$CODEX_BIN" exec -p blind -m "$LOG_MODEL" -c "model_reasoning_effort=\"$LOG_EFFORT\"" --json --skip-git-repo-check -C "$empty" -)
   printf '%s\n' "${argv[*]}" > "$out/invocation.txt"
   printf '%s\n' "$prompt" > "$out/prompt.txt"
   "${argv[@]}" < "$out/prompt.txt" \
@@ -1218,7 +1457,7 @@ $extra"
   mkdir -p "$tree/.ask-codex-tmp"
   # Same rule as run_review: the prompt goes on stdin, never argv. It carries the
   # caller's text, so it is caller-controlled however wrapper-authored it looks.
-  local -a argv=("$CODEX_BIN" exec -p gate --json -C "$tree" -- -)
+  local -a argv=("$CODEX_BIN" exec -p gate -m "$LOG_MODEL" -c "model_reasoning_effort=\"$LOG_EFFORT\"" --json -C "$tree" -- -)
   { printf '%s\n' "${argv[*]}"; printf '(prompt, delivered on stdin)\n%s\n' "$prompt"; } > "$out/invocation.txt"
 
   # TMPDIR is redirected INTO the tree: the profile excludes the real $TMPDIR and
@@ -1227,6 +1466,88 @@ $extra"
   printf '%s\n' "$prompt" | TMPDIR="$tree/.ask-codex-tmp" "${argv[@]}" \
     > "$RUN_SCRATCH/stream.jsonl" 2> "$RUN_SCRATCH/codex-stderr.log"
   return 0
+}
+
+# Which codex binary this is, read from the FILE, never by running it: the
+# code-signing CDHash when there is one, otherwise size and mtime. ChatGPT.app
+# updates codex on its own, about every five days (0.147.0 -> 0.153.4 in ~32
+# days), and every fence here was measured on a specific binary.
+codex_fingerprint() {
+  local h
+  h=$(codesign -dv --verbose=4 "$CODEX_BIN" 2>&1 | sed -n 's/^CDHash=//p')
+  if [ -n "$h" ]; then printf 'cdhash:%s' "$h"; return 0; fi
+  stat -f 'size-mtime:%z:%m' "$CODEX_BIN" 2>/dev/null || printf 'unreadable'
+}
+
+# `ask-codex doctor` — is the install whole, here, now? One line per check, a
+# remedy on every FAIL, exit 0 unless something FAILs. Spends no quota and never
+# spawns codex: every check reads a file, probes a directory, or runs preflight in
+# a subshell so one broken fence is reported without hiding the others.
+run_doctor() {
+  cause doctor
+  local failed=0 m out rc line fp cert dir
+  doc_pass() { printf 'PASS %s\n' "$1"; }
+  doc_warn() { printf 'WARN %s — %s\n' "$1" "$2"; }
+  doc_fail() { printf 'FAIL %s — %s\n' "$1" "$2"; failed=1; }
+
+  if sandbox_will_refuse_codex; then
+    doc_fail harness "this harness's command sandbox denies writes to $AGENT_HOME, so Codex cannot start from here — add \"ask-codex *\" to sandbox.excludedCommands in ~/.claude/settings.json (source ~/dotfiles/.claude/settings.json, then bootstrap.sh)"
+  else
+    doc_pass "harness — Codex can start from here"
+  fi
+
+  # Both lines are REQUIRED. A helper that dies prints neither, and a check that
+  # never reports is a FAIL, not a check that silently vanished.
+  local seen_ex=0 seen_perm=0
+  while IFS= read -r line; do
+    case "$line" in
+      "exclusion ok")  seen_ex=1;   doc_pass "exclusion — \"ask-codex *\" runs outside the command sandbox" ;;
+      "permission ok") seen_perm=1; doc_pass "permission — Bash(ask-codex:*) is allowed" ;;
+      exclusion\ *)    seen_ex=1;   doc_fail exclusion "${line#exclusion }" ;;
+      permission\ *)   seen_perm=1; doc_fail permission "${line#permission }" ;;
+    esac
+  done < <(_py settingscheck "$CLAUDE_SETTINGS" 2>/dev/null)
+  [ "$seen_ex" = 1 ]   || doc_fail exclusion  "the settings check did not report on $CLAUDE_SETTINGS — it could not be read as Claude Code settings"
+  [ "$seen_perm" = 1 ] || doc_fail permission "the settings check did not report on $CLAUDE_SETTINGS — it could not be read as Claude Code settings"
+
+  # A readable regular FILE — a directory or a dangling link named auth.json is
+  # not credentials. Validity is not checked: that would mean spawning codex.
+  if [ -f "$AGENT_HOME/auth.json" ] && [ -r "$AGENT_HOME/auth.json" ]; then doc_pass "auth — $AGENT_HOME/auth.json"
+  else doc_fail auth "no readable auth.json file in $AGENT_HOME — run 'codex login', then bootstrap.sh step 7.7"; fi
+
+  for m in blind review gate; do
+    out=$( (preflight "$m") 2>&1 ); rc=$?
+    if [ "$rc" = 0 ]; then doc_pass "fence $m — $(profile_for "$m").config.toml asserts its policy"
+    else doc_fail "fence $m" "$(printf '%s\n' "$out" | tail -1 | sed 's/^ask-codex: //')"; fi
+  done
+
+  dir=$(state_dir)
+  if mkdir -p "$dir" 2>/dev/null && { : >> "$dir/runs.jsonl"; } 2>/dev/null; then
+    doc_pass "log — $dir/runs.jsonl"
+  else
+    doc_fail log "cannot append to $dir/runs.jsonl — runs will leave only a stderr line as their record"
+  fi
+
+  out=$(_py resolve "$AGENT_HOME" "" "" "")
+  case "$out" in
+    "OK "*) set -- $out; doc_pass "models — every depth resolves; no --depth means $3 at $4 effort" ;;
+    *)      doc_fail models "${out#* }" ;;
+  esac
+  out=$(_py normaldrift "$AGENT_HOME")
+  if [ "$out" = ok ]; then doc_pass "drift — config.toml agrees with depths.toml [normal]"
+  else doc_warn drift "$out"; fi
+
+  fp=$(codex_fingerprint); cert="$dir/certified-codex"
+  if [ ! -f "$cert" ]; then
+    doc_warn certified "this codex ($fp) has never passed the live suite on this machine — run: bash ${POD_EVIDENCE%/evidence}/scripts/test_ask_codex.sh --live"
+  elif [ "$(cat "$cert")" = "$fp" ]; then
+    doc_pass "certified — this codex ($fp) passed the live suite"
+  else
+    doc_warn certified "codex changed since the live suite last passed (certified $(cat "$cert"), now $fp) — before trusting a fence claim, run: bash ${POD_EVIDENCE%/evidence}/scripts/test_ask_codex.sh --live"
+  fi
+
+  [ "$failed" = 0 ] && exit $EX_OK
+  exit $EX_ENV
 }
 
 # The four mode words, and nothing else. Kept as a function because the dispatch
@@ -1246,6 +1567,18 @@ main() {
   # needs something to infer FROM, and a zero-argument command that spends
   # ChatGPT quota on a typo is a worse default than a usage message.
   [ $# -ge 1 ] || usage
+
+  # `doctor` is LEXICAL, like a mode word: a repository may legally hold a file
+  # called doctor, and then the word is refused rather than guessed.
+  if [ "$1" = doctor ]; then
+    if [ -e doctor ]; then
+      say "'doctor' is both a command and an existing path. Refusing rather than guessing."
+      say "  to mean the file:  ./doctor"
+      exit $EX_USAGE
+    fi
+    [ $# -eq 1 ] || { say "doctor takes no arguments"; usage; }
+    run_doctor
+  fi
 
   local mode="" inferred=0
   if is_mode_word "$1"; then
@@ -1276,6 +1609,7 @@ main() {
   # asked for a diff" from "the caller asked for nothing" — and the forbidden
   # paths-plus-scope combination would sail through silently.
   local scope_flag="--uncommitted" scope_val="" extra="" scope_explicit=0
+  local opt_depth="" opt_model="" opt_effort=""
   local blind_lines="" blind_binaries="" scoped_files="" scoped_bytes="" scoped_omitted=""
   local -a paths=()
   while [ $# -gt 0 ]; do
@@ -1291,6 +1625,18 @@ main() {
         # the neighbouring door to the one cycle 1 found open.
         case "$2" in -*) say "'$2' is not a ref — a branch or sha cannot begin with '-'"; usage ;; esac
         scope_flag="$1"; scope_val="$2"; scope_explicit=1; shift 2 ;;
+      --depth|--model|--effort)
+        # Collected as RAW text and validated by `_py resolve` before preflight;
+        # nothing here reaches codex. A value that begins with '-' is an option
+        # the caller meant to pass through — refused exactly as for --base.
+        [ $# -ge 2 ] || { say "$1 needs a value"; usage; }
+        case "$2" in -*) say "$1 needs a value — '$2' is an option, not a value"; usage ;; esac
+        case "$1" in
+          --depth)  opt_depth="$2" ;;
+          --model)  opt_model="$2" ;;
+          --effort) opt_effort="$2" ;;
+        esac
+        shift 2 ;;
       -h|--help) usage ;;
       --) shift; extra="${extra:+$extra }$*"; break ;;
       -*)
@@ -1351,6 +1697,27 @@ main() {
     say "'ask-codex gate <instructions>', or the MCP codex tool for a free-form ask."
     exit $EX_USAGE
   fi
+
+  # BEFORE preflight and before anything is copied: a refused value is exit 3
+  # even inside a caller's sandbox, and codex receives zero arguments. Only the
+  # validated OK line ever sets what reaches codex's argv.
+  local resolved
+  resolved=$(_py resolve "$AGENT_HOME" "$opt_depth" "$opt_model" "$opt_effort") \
+    || die "could not resolve depth, model and effort" $EX_ENV
+  case "$resolved" in
+    "OK "*)
+      set -- $resolved
+      LOG_DEPTH="$2" LOG_MODEL="$3" LOG_EFFORT="$4" ;;
+    "USAGE "*)
+      set -- $resolved
+      cause "$2"
+      say "${resolved#USAGE "$2" }"
+      exit $EX_USAGE ;;
+    "ENV "*)
+      die "${resolved#ENV }" $EX_ENV ;;
+    *)
+      die "unexpected answer resolving depth, model and effort: $resolved" $EX_ENV ;;
+  esac
 
   preflight "$mode"
 
@@ -1498,9 +1865,8 @@ main() {
     cause no-stream
     if [ -n "$cause" ]; then
       say "the run never started: $cause"
-      say "this is the calling harness's command sandbox, not Codex and not the fence."
       say "Codex keeps its state databases in $AGENT_HOME and could not open them."
-      say "re-run with that sandbox bypassed."
+      say_install_incomplete
     else
       say "the run did not complete cleanly: ${status:-the event stream could not be read}"
       say "last stderr: $(tail -c 400 "$RUN_SCRATCH/codex-stderr.log" 2>/dev/null | tr '\n' ' ')"
@@ -1543,6 +1909,9 @@ main() {
     printf 'date: %s\n' "$(date -u +%Y-%m-%d)"
     printf 'mode: %s\n' "$mode"
     printf 'profile: %s\n' "$mode"
+    printf 'depth: %s\n' "$LOG_DEPTH"
+    printf 'model: %s\n' "$LOG_MODEL"
+    printf 'effort: %s\n' "$LOG_EFFORT"
     printf 'repo: %s\n' "$repo"
     if [ "$mode" = gate ]; then
       printf 'verdict: %s\n' "$verdict"
@@ -1594,8 +1963,6 @@ main() {
   fi
   printf 'ask-codex: evidence=%s\n' "$out"
   printf 'SESSION_ID=%s\n' "$session"
-  printf 'ask-codex: follow up with — CODEX_HOME=%s %s exec -p %s resume %s\n' \
-    "$AGENT_HOME" "$CODEX_BIN" "$(profile_for "$mode")" "$session"
 
   case "$verdict" in
     FAIL)          exit $EX_GATE_FAIL ;;

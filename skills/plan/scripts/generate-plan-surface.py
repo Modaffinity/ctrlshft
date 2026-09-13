@@ -70,7 +70,19 @@ def replay(entries):
         "run_records": [],           # [{id, date, detail}]
     }
 
-    for entry in entries:
+    # Track all IDs to detect duplicates
+    seen_ids = {
+        "decision": {},      # id -> line_number
+        "assumption": {},
+        "question": {},
+        "run_record": {},
+        "goal": {},          # goal_id -> (branch, line_number)
+        "branch": {},        # slug -> line_number
+        "wave": {},          # wave_id -> line_number
+    }
+    duplicates_found = []
+
+    for line_num, entry in enumerate(entries, 1):
         ev = entry["event"]
         ts = entry.get("timestamp", "")
         data = entry.get("data", {})
@@ -84,11 +96,25 @@ def replay(entries):
 
         elif ev == "branch-sketched":
             slug = data.get("slug", "")
+
+            # Check for duplicate branch
+            if slug in seen_ids["branch"]:
+                duplicates_found.append({
+                    "type": "branch",
+                    "id": slug,
+                    "first_line": seen_ids["branch"][slug],
+                    "second_line": line_num,
+                })
+                print(f"WARNING: Duplicate branch slug {slug} at lines {seen_ids['branch'][slug]} and {line_num}", file=sys.stderr)
+            else:
+                seen_ids["branch"][slug] = line_num
+
             state["branches"][slug] = {
                 "name": data.get("name", slug),
                 "summary": data.get("summary", ""),
                 "status": "sketched",
                 "goals": OrderedDict(),
+                "is_duplicate": slug in [d["id"] for d in duplicates_found if d["type"] == "branch"],
             }
 
         elif ev == "branch-detailed":
@@ -97,10 +123,34 @@ def replay(entries):
                 state["branches"][slug]["status"] = "detailed"
 
         elif ev == "wave-opened":
-            wave_id = data.get("wave_id", f"wave-{len(state['waves'])+1}")
+            # Generate wave ID that won't collide
+            if "wave_id" not in data:
+                existing_nums = []
+                for w in state["waves"]:
+                    wid = w["id"]
+                    if wid.startswith("wave-") and wid[5:].isdigit():
+                        existing_nums.append(int(wid[5:]))
+                next_id = max(existing_nums) + 1 if existing_nums else 1
+                wave_id = f"wave-{next_id}"
+            else:
+                wave_id = data["wave_id"]
+
+            # Check for duplicate wave
+            if wave_id in seen_ids["wave"]:
+                duplicates_found.append({
+                    "type": "wave",
+                    "id": wave_id,
+                    "first_line": seen_ids["wave"][wave_id],
+                    "second_line": line_num,
+                })
+                print(f"WARNING: Duplicate wave ID {wave_id} at lines {seen_ids['wave'][wave_id]} and {line_num}", file=sys.stderr)
+            else:
+                seen_ids["wave"][wave_id] = line_num
+
             branch = data.get("branch", "")
             w = {"id": wave_id, "branch": branch, "status": "open",
-                 "opened": ts, "closed": None}
+                 "opened": ts, "closed": None,
+                 "is_duplicate": wave_id in [d["id"] for d in duplicates_found if d["type"] == "wave"]}
             state["waves"].append(w)
             state["current_wave"] = wave_id
 
@@ -116,11 +166,31 @@ def replay(entries):
         elif ev == "goal-emitted":
             branch = data.get("branch", "")
             goal_id = data.get("goal_id", "")
+
+            # Check for duplicate goal (critical: OrderedDict silently overwrites)
+            # goal_id must be globally unique across all branches
+            if goal_id in seen_ids["goal"]:
+                first_branch, first_line = seen_ids["goal"][goal_id]
+                duplicates_found.append({
+                    "type": "goal",
+                    "id": goal_id,
+                    "branch": branch,
+                    "first_line": first_line,
+                    "second_line": line_num,
+                })
+                if first_branch == branch:
+                    print(f"WARNING: Duplicate goal ID {goal_id} in branch {branch} at lines {first_line} and {line_num}", file=sys.stderr)
+                else:
+                    print(f"WARNING: Duplicate goal ID {goal_id} across branches (branch {first_branch} line {first_line}, branch {branch} line {line_num})", file=sys.stderr)
+            else:
+                seen_ids["goal"][goal_id] = (branch, line_num)
+
             if branch in state["branches"]:
                 state["branches"][branch]["goals"][goal_id] = {
                     "title": data.get("title", ""),
                     "status": "emitted",
                     "wave": data.get("wave", ""),
+                    "is_duplicate": goal_id in [d['id'] for d in duplicates_found if d["type"] == "goal"],
                 }
 
         elif ev == "goal-skipped":
@@ -132,23 +202,71 @@ def replay(entries):
                 state["branches"][branch]["goals"][goal_id]["skip_reason"] = reason
 
         elif ev == "decision-made":
+            # Generate ID that won't collide with renumbered registers
+            if "id" not in data:
+                existing_nums = []
+                for d in state["decisions"]:
+                    if d["id"].startswith("D") and d["id"][1:].isdigit():
+                        existing_nums.append(int(d["id"][1:]))
+                next_id = max(existing_nums) + 1 if existing_nums else 1
+                generated_id = f"D{next_id}"
+            else:
+                generated_id = data["id"]
+
+            # Check for duplicate
+            if generated_id in seen_ids["decision"]:
+                duplicates_found.append({
+                    "type": "decision",
+                    "id": generated_id,
+                    "first_line": seen_ids["decision"][generated_id],
+                    "second_line": line_num,
+                })
+                print(f"WARNING: Duplicate decision ID {generated_id} at lines {seen_ids['decision'][generated_id]} and {line_num}", file=sys.stderr)
+            else:
+                seen_ids["decision"][generated_id] = line_num
+
             state["decisions"].append({
-                "id": data.get("id", f"D{len(state['decisions'])+1}"),
+                "id": generated_id,
                 "date": ts,
                 "title": data.get("title", ""),
                 "why": data.get("why", ""),
                 "implications": data.get("implications", ""),
+                "is_duplicate": generated_id in [d["id"] for d in duplicates_found if d["type"] == "decision"],
             })
 
         elif ev == "assumption-recorded":
+            # Generate ID that won't collide with renumbered registers
+            if "id" not in data:
+                existing_nums = []
+                for a in state["assumptions"]:
+                    if a["id"].startswith("A") and a["id"][1:].isdigit():
+                        existing_nums.append(int(a["id"][1:]))
+                next_id = max(existing_nums) + 1 if existing_nums else 1
+                generated_id = f"A{next_id}"
+            else:
+                generated_id = data["id"]
+
+            # Check for duplicate
+            if generated_id in seen_ids["assumption"]:
+                duplicates_found.append({
+                    "type": "assumption",
+                    "id": generated_id,
+                    "first_line": seen_ids["assumption"][generated_id],
+                    "second_line": line_num,
+                })
+                print(f"WARNING: Duplicate assumption ID {generated_id} at lines {seen_ids['assumption'][generated_id]} and {line_num}", file=sys.stderr)
+            else:
+                seen_ids["assumption"][generated_id] = line_num
+
             state["assumptions"].append({
-                "id": data.get("id", f"A{len(state['assumptions'])+1}"),
+                "id": generated_id,
                 "date": ts,
                 "text": data.get("text", ""),
                 "provenance": data.get("provenance", ""),
                 "confidence": data.get("confidence", ""),
                 "dependents": data.get("dependents", []),
                 "status": "open",
+                "is_duplicate": generated_id in [d["id"] for d in duplicates_found if d["type"] == "assumption"],
             })
 
         elif ev == "assumption-falsified":
@@ -160,12 +278,36 @@ def replay(entries):
                     a["falsified_reason"] = data.get("reason", "")
 
         elif ev == "question-opened":
+            # Generate ID that won't collide with renumbered registers
+            if "id" not in data:
+                existing_nums = []
+                for q in state["questions"]:
+                    if q["id"].startswith("Q") and q["id"][1:].isdigit():
+                        existing_nums.append(int(q["id"][1:]))
+                next_id = max(existing_nums) + 1 if existing_nums else 1
+                generated_id = f"Q{next_id}"
+            else:
+                generated_id = data["id"]
+
+            # Check for duplicate
+            if generated_id in seen_ids["question"]:
+                duplicates_found.append({
+                    "type": "question",
+                    "id": generated_id,
+                    "first_line": seen_ids["question"][generated_id],
+                    "second_line": line_num,
+                })
+                print(f"WARNING: Duplicate question ID {generated_id} at lines {seen_ids['question'][generated_id]} and {line_num}", file=sys.stderr)
+            else:
+                seen_ids["question"][generated_id] = line_num
+
             state["questions"].append({
-                "id": data.get("id", f"Q{len(state['questions'])+1}"),
+                "id": generated_id,
                 "date": ts,
                 "text": data.get("text", ""),
                 "resolves_when": data.get("resolves_when", ""),
                 "status": "open",
+                "is_duplicate": generated_id in [d["id"] for d in duplicates_found if d["type"] == "question"],
             })
 
         elif ev == "question-resolved":
@@ -202,11 +344,35 @@ def replay(entries):
             })
 
         elif ev == "run-record-written":
+            # Generate ID that won't collide with renumbered registers
+            if "id" not in data:
+                existing_nums = []
+                for rr in state["run_records"]:
+                    if rr["id"].startswith("RR") and rr["id"][2:].isdigit():
+                        existing_nums.append(int(rr["id"][2:]))
+                next_id = max(existing_nums) + 1 if existing_nums else 1
+                generated_id = f"RR{next_id}"
+            else:
+                generated_id = data["id"]
+
+            # Check for duplicate
+            if generated_id in seen_ids["run_record"]:
+                duplicates_found.append({
+                    "type": "run_record",
+                    "id": generated_id,
+                    "first_line": seen_ids["run_record"][generated_id],
+                    "second_line": line_num,
+                })
+                print(f"WARNING: Duplicate run record ID {generated_id} at lines {seen_ids['run_record'][generated_id]} and {line_num}", file=sys.stderr)
+            else:
+                seen_ids["run_record"][generated_id] = line_num
+
             state["run_records"].append({
-                "id": data.get("id", f"RR{len(state['run_records'])+1}"),
+                "id": generated_id,
                 "date": ts,
                 "goal_id": data.get("goal_id", ""),
                 "detail": data.get("detail", ""),
+                "is_duplicate": generated_id in [d["id"] for d in duplicates_found if d["type"] == "run_record"],
             })
 
     return state
@@ -235,9 +401,12 @@ def render_index(state):
     lines.append("| Branch | Status | Goals |")
     lines.append("|---|---|---|")
     for slug, br in state["branches"].items():
+        branch_name = br['name']
+        if br.get('is_duplicate', False):
+            branch_name = f"{br['name']} ⚠️DUPLICATE"
         goal_count = len(br["goals"])
         goal_summary = f"{goal_count} goal(s)" if goal_count else "—"
-        lines.append(f"| {br['name']} | {br['status']} | {goal_summary} |")
+        lines.append(f"| {branch_name} | {br['status']} | {goal_summary} |")
     lines.append("")
 
     # Goals detail per branch
@@ -248,10 +417,13 @@ def render_index(state):
             lines.append("| Goal | Status |")
             lines.append("|---|---|")
             for gid, g in br["goals"].items():
+                goal_id_str = gid
+                if g.get('is_duplicate', False):
+                    goal_id_str = f"{gid} ⚠️DUPLICATE"
                 status = g["status"]
                 if status == "skipped":
                     status = f"skipped — {g.get('skip_reason', '')}"
-                lines.append(f"| {gid}: {g['title']} | {status} |")
+                lines.append(f"| {goal_id_str}: {g['title']} | {status} |")
             lines.append("")
 
     # Wave history
@@ -261,8 +433,11 @@ def render_index(state):
         lines.append("| Wave | Branch | Status | Opened | Closed |")
         lines.append("|---|---|---|---|---|")
         for w in state["waves"]:
+            wave_id_str = w['id']
+            if w.get('is_duplicate', False):
+                wave_id_str = f"{w['id']} ⚠️DUPLICATE"
             closed = w["closed"] or "—"
-            lines.append(f"| {w['id']} | {w['branch']} | {w['status']} | {w['opened']} | {closed} |")
+            lines.append(f"| {wave_id_str} | {w['branch']} | {w['status']} | {w['opened']} | {closed} |")
         lines.append("")
 
     # Gate / verdict summary
@@ -282,7 +457,10 @@ def render_index(state):
         lines.append("## Run records")
         lines.append("")
         for rr in state["run_records"]:
-            lines.append(f"- {rr['id']}: goal {rr['goal_id']} ({rr['date']})")
+            rr_id_str = rr['id']
+            if rr.get('is_duplicate', False):
+                rr_id_str = f"{rr['id']} ⚠️DUPLICATE"
+            lines.append(f"- {rr_id_str}: goal {rr['goal_id']} ({rr['date']})")
         lines.append("")
 
     return "\n".join(lines) + "\n"
@@ -293,7 +471,10 @@ def render_decisions(state):
     lines.append("| ID | Date | Decision | Why | Implications |")
     lines.append("|---|---|---|---|---|")
     for d in state["decisions"]:
-        lines.append(f"| {d['id']} | {d['date']} | {d['title']} | {d['why']} | {d['implications']} |")
+        id_str = d['id']
+        if d.get('is_duplicate', False):
+            id_str = f"{d['id']} ⚠️DUPLICATE"
+        lines.append(f"| {id_str} | {d['date']} | {d['title']} | {d['why']} | {d['implications']} |")
     lines.append("")
     return "\n".join(lines) + "\n"
 
@@ -303,12 +484,15 @@ def render_assumptions(state):
     lines.append("| ID | Date | Assumption | Provenance | Confidence | Dependents | Status |")
     lines.append("|---|---|---|---|---|---|---|")
     for a in state["assumptions"]:
+        id_str = a['id']
+        if a.get('is_duplicate', False):
+            id_str = f"{a['id']} ⚠️DUPLICATE"
         deps = ", ".join(a["dependents"]) if a["dependents"] else "—"
         status = a["status"]
         if status == "falsified":
             status = f"falsified ({a.get('falsified_date', '')}): {a.get('falsified_reason', '')}"
         lines.append(
-            f"| {a['id']} | {a['date']} | {a['text']} | {a['provenance']} "
+            f"| {id_str} | {a['date']} | {a['text']} | {a['provenance']} "
             f"| {a['confidence']} | {deps} | {status} |"
         )
     lines.append("")
@@ -320,11 +504,14 @@ def render_questions(state):
     lines.append("| ID | Date | Question | Resolves when | Status |")
     lines.append("|---|---|---|---|---|")
     for q in state["questions"]:
+        id_str = q['id']
+        if q.get('is_duplicate', False):
+            id_str = f"{q['id']} ⚠️DUPLICATE"
         status = q["status"]
         if status == "resolved":
             status = f"resolved ({q.get('resolved_date', '')}): {q.get('resolution', '')}"
         lines.append(
-            f"| {q['id']} | {q['date']} | {q['text']} "
+            f"| {id_str} | {q['date']} | {q['text']} "
             f"| {q['resolves_when']} | {status} |"
         )
     lines.append("")
