@@ -106,9 +106,16 @@ path. The command came back **"This command requires approval."** The session th
 Nothing went wrong with its reasoning. It wanted to finish, the fenced door was shut, and an open
 door was right there.
 
-*That trigger is closed; `ask-codex` no longer prompts. The rule is not, because an approval prompt
-was only one way the door can shut — a missing profile, a failed `bootstrap.sh`, an expired login and
-a harness sandbox all produce the same situation and the same temptation.*
+*That trigger is closed where the install is complete: `"ask-codex *"` in `sandbox.excludedCommands`
+(user settings, from `~/dotfiles/.claude/settings.json` via `bootstrap.sh`) runs it outside Claude
+Code's command sandbox, with no prompt, in any pod — measured 2026-09-13 from a fresh sandboxed
+session in a pod with default settings. The rule is not closed, because an approval prompt was only
+one way the door can shut — a missing profile, a failed `bootstrap.sh`, an expired login and a
+missing exclusion all produce the same situation and the same temptation.*
+
+**Invoke it by name.** The exclusion matches command text: `ask-codex …` and `cd <dir> && ask-codex …`
+run outside the sandbox; `~/.local/bin/ask-codex …` by absolute path does **not**, and is refused as
+`install incomplete — stop`. Never re-run it with the sandbox disabled — that is the prompt again.
 
 **So: a blocked, missing or failing `ask-codex` is a stopping condition, not a routing decision.**
 Report what happened and what it needs. Falling back to MCP converts a permission prompt into a
