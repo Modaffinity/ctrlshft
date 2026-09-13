@@ -57,6 +57,9 @@ readonly REAL_HOME
 readonly AGENT_HOME="$REAL_HOME/.codex-agent"
 readonly REPORT_NAME=".ask-codex-report.md"
 readonly POD_EVIDENCE="$REAL_HOME/Library/CloudStorage/Dropbox/LLM/cortexos-pods/hq/codex-bridge/evidence"
+# Read by `doctor` only, for the sandbox exclusion and the permission rule. User
+# scope is the scope Slice A's acceptance proved effective in every pod.
+readonly CLAUDE_SETTINGS="$REAL_HOME/.claude/settings.json"
 readonly STALE_TREE_HOURS=24
 
 # Unconditional, never ${CODEX_HOME:-...}: an inherited value would put the run
@@ -108,11 +111,13 @@ cause_from_code() {
 # ASK_CODEX_STATE overrides the DIRECTORY only, so the suite never appends to the
 # operator's real log. It is not a fence seam: it reaches no Codex argument, and
 # section 3b's argv assertions would catch it if it did.
+state_dir() { printf '%s' "${ASK_CODEX_STATE:-${XDG_STATE_HOME:-$REAL_HOME/.local/state}/ask-codex}"; }
+
 log_run() { # $1 = exit code
   [ "$LOGGED" = 1 ] && return 0
   LOGGED=1
   [ "$LOG_CAUSE" = unknown ] && LOG_CAUSE=$(cause_from_code "$1")
-  local dir="${ASK_CODEX_STATE:-${XDG_STATE_HOME:-$REAL_HOME/.local/state}/ask-codex}"
+  local dir; dir=$(state_dir)
   # A full disk, an unwritable directory or a failed line must never turn a
   # successful review into a wrapper failure, so every path returns 0 — but none
   # returns QUIETLY. Inside a caller's command sandbox this directory is
@@ -200,6 +205,11 @@ never a flag you pass: there is no sandbox option, and there never will be.
   ask-codex gate [instructions]
         Codex runs this repo's suite inside a disposable clone and files a
         verdict (profile: gate, workspace-write confined to that clone).
+
+  ask-codex doctor
+        Checks the install: one PASS / WARN / FAIL line per part, with the
+        remedy on every FAIL. Spends no quota and never starts Codex. Exit 0
+        unless something FAILs.
 
 How hard Codex thinks — never how far it can reach. Any mode takes these:
   --depth quick|normal|deep   a model and effort pair from ~/.codex-agent/depths.toml
@@ -964,6 +974,42 @@ elif op == 'resolve':
         usage('bad-effort', f"{model} does not support effort '{effort}' — it supports: {' '.join(listed[model])}")
     print(f'OK {depth} {model} {effort}')
 
+elif op == 'settingscheck':
+    # doctor's two checks on the Claude Code settings file. Prints exactly two
+    # lines, `exclusion <ok|remedy>` and `permission <ok|remedy>`.
+    path = sys.argv[2]
+    try:
+        s = json.load(open(path))
+        if not isinstance(s, dict):
+            raise ValueError('not a JSON object')
+    except (OSError, ValueError) as e:
+        print(f'exclusion cannot read {path} ({e})')
+        print(f'permission cannot read {path} ({e})')
+        sys.exit(0)
+    ex = (s.get('sandbox') or {}).get('excludedCommands') or []
+    if any(e in ('ask-codex *', 'ask-codex:*') for e in ex):
+        print('exclusion ok')
+    elif 'ask-codex' in ex:
+        print('exclusion the entry is the bare name "ask-codex", which matches nothing — replace it with "ask-codex *" in ~/dotfiles/.claude/settings.json, then run bootstrap.sh')
+    else:
+        print(f'exclusion {path} has no "ask-codex *" in sandbox.excludedCommands — add it in ~/dotfiles/.claude/settings.json, then run bootstrap.sh')
+    allow = (s.get('permissions') or {}).get('allow') or []
+    print('permission ok' if 'Bash(ask-codex:*)' in allow
+          else f'permission {path} has no Bash(ask-codex:*) in permissions.allow — every call would ask for approval')
+
+elif op == 'normaldrift':
+    # config.toml's model lines are kept for non-wrapper callers (the MCP path);
+    # a run with no --depth uses depths.toml [normal]. Disagreement is not a
+    # fault, but two defaults that differ silently are worth one line.
+    home = sys.argv[2]
+    base = (read_tables(os.path.join(home, 'config.toml')) or {}).get('', {})
+    normal = (read_tables(os.path.join(home, 'depths.toml')) or {}).get('normal', {})
+    diffs = [f'config.toml {ck} = {base[ck]} but depths.toml [normal] {dk} = {normal.get(dk)}'
+             for ck, dk in (('model', 'model'), ('model_reasoning_effort', 'effort'))
+             if ck in base and base[ck] != normal.get(dk)]
+    print('ok' if not diffs
+          else '; '.join(diffs) + ' — the MCP path and an ask-codex run with no --depth think differently hard')
+
 else:
     sys.exit(f"unknown op {op}")
 PYEOF
@@ -1401,6 +1447,81 @@ $extra"
   return 0
 }
 
+# Which codex binary this is, read from the FILE, never by running it: the
+# code-signing CDHash when there is one, otherwise size and mtime. ChatGPT.app
+# updates codex on its own, about every five days (0.147.0 -> 0.153.4 in ~32
+# days), and every fence here was measured on a specific binary.
+codex_fingerprint() {
+  local h
+  h=$(codesign -dv --verbose=4 "$CODEX_BIN" 2>&1 | sed -n 's/^CDHash=//p')
+  if [ -n "$h" ]; then printf 'cdhash:%s' "$h"; return 0; fi
+  stat -f 'size-mtime:%z:%m' "$CODEX_BIN" 2>/dev/null || printf 'unreadable'
+}
+
+# `ask-codex doctor` — is the install whole, here, now? One line per check, a
+# remedy on every FAIL, exit 0 unless something FAILs. Spends no quota and never
+# spawns codex: every check reads a file, probes a directory, or runs preflight in
+# a subshell so one broken fence is reported without hiding the others.
+run_doctor() {
+  cause doctor
+  local failed=0 m out rc line fp cert dir
+  doc_pass() { printf 'PASS %s\n' "$1"; }
+  doc_warn() { printf 'WARN %s — %s\n' "$1" "$2"; }
+  doc_fail() { printf 'FAIL %s — %s\n' "$1" "$2"; failed=1; }
+
+  if sandbox_will_refuse_codex; then
+    doc_fail harness "this harness's command sandbox denies writes to $AGENT_HOME, so Codex cannot start from here — add \"ask-codex *\" to sandbox.excludedCommands in ~/.claude/settings.json (source ~/dotfiles/.claude/settings.json, then bootstrap.sh)"
+  else
+    doc_pass "harness — Codex can start from here"
+  fi
+
+  while IFS= read -r line; do
+    case "$line" in
+      "exclusion ok")  doc_pass "exclusion — \"ask-codex *\" runs outside the command sandbox" ;;
+      "permission ok") doc_pass "permission — Bash(ask-codex:*) is allowed" ;;
+      exclusion\ *)    doc_fail exclusion "${line#exclusion }" ;;
+      permission\ *)   doc_fail permission "${line#permission }" ;;
+    esac
+  done < <(_py settingscheck "$CLAUDE_SETTINGS")
+
+  if [ -e "$AGENT_HOME/auth.json" ]; then doc_pass "auth — $AGENT_HOME/auth.json"
+  else doc_fail auth "no auth.json in $AGENT_HOME — run 'codex login', then bootstrap.sh step 7.7"; fi
+
+  for m in blind review gate; do
+    out=$( (preflight "$m") 2>&1 ); rc=$?
+    if [ "$rc" = 0 ]; then doc_pass "fence $m — $(profile_for "$m").config.toml asserts its policy"
+    else doc_fail "fence $m" "$(printf '%s\n' "$out" | tail -1 | sed 's/^ask-codex: //')"; fi
+  done
+
+  dir=$(state_dir)
+  if mkdir -p "$dir" 2>/dev/null && { : >> "$dir/runs.jsonl"; } 2>/dev/null; then
+    doc_pass "log — $dir/runs.jsonl"
+  else
+    doc_fail log "cannot append to $dir/runs.jsonl — runs will leave only a stderr line as their record"
+  fi
+
+  out=$(_py resolve "$AGENT_HOME" "" "" "")
+  case "$out" in
+    "OK "*) set -- $out; doc_pass "models — every depth resolves; no --depth means $3 at $4 effort" ;;
+    *)      doc_fail models "${out#* }" ;;
+  esac
+  out=$(_py normaldrift "$AGENT_HOME")
+  if [ "$out" = ok ]; then doc_pass "drift — config.toml agrees with depths.toml [normal]"
+  else doc_warn drift "$out"; fi
+
+  fp=$(codex_fingerprint); cert="$dir/certified-codex"
+  if [ ! -f "$cert" ]; then
+    doc_warn certified "this codex ($fp) has never passed the live suite on this machine — run: bash ${POD_EVIDENCE%/evidence}/scripts/test_ask_codex.sh --live"
+  elif [ "$(cat "$cert")" = "$fp" ]; then
+    doc_pass "certified — this codex ($fp) passed the live suite"
+  else
+    doc_warn certified "codex changed since the live suite last passed (certified $(cat "$cert"), now $fp) — before trusting a fence claim, run: bash ${POD_EVIDENCE%/evidence}/scripts/test_ask_codex.sh --live"
+  fi
+
+  [ "$failed" = 0 ] && exit $EX_OK
+  exit $EX_ENV
+}
+
 # The four mode words, and nothing else. Kept as a function because the dispatch
 # rule below has to ask the question twice: once about token one, and once about
 # whether that same token is also a path on disk.
@@ -1418,6 +1539,18 @@ main() {
   # needs something to infer FROM, and a zero-argument command that spends
   # ChatGPT quota on a typo is a worse default than a usage message.
   [ $# -ge 1 ] || usage
+
+  # `doctor` is LEXICAL, like a mode word: a repository may legally hold a file
+  # called doctor, and then the word is refused rather than guessed.
+  if [ "$1" = doctor ]; then
+    if [ -e doctor ]; then
+      say "'doctor' is both a command and an existing path. Refusing rather than guessing."
+      say "  to mean the file:  ./doctor"
+      exit $EX_USAGE
+    fi
+    [ $# -eq 1 ] || { say "doctor takes no arguments"; usage; }
+    run_doctor
+  fi
 
   local mode="" inferred=0
   if is_mode_word "$1"; then

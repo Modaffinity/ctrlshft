@@ -128,7 +128,10 @@ run outside the sandbox; `~/.local/bin/ask-codex …` by absolute path does **no
 `install incomplete — stop`. Never re-run it with the sandbox disabled — that is the prompt again.
 
 **So: a blocked, missing or failing `ask-codex` is a stopping condition, not a routing decision.**
-Report what happened and what it needs. Falling back to MCP converts a permission prompt into a
+Report what happened and what it needs. **`ask-codex doctor` says which part is missing** — one
+PASS / WARN / FAIL line per part of the install with the remedy, no quota, no Codex — so run it and
+quote its FAIL lines. A `WARN certified` means Codex updated itself since the live suite last passed:
+the fences were measured on an older binary. Falling back to MCP converts a permission prompt into a
 silent loss of containment, and whoever asked for containment will never know they did not get it.
 
 The one exception is where containment was never the point: free-form thinking-out-loud, no untrusted
