@@ -259,6 +259,12 @@ def read_tables(path):
         lines = open(path, errors='replace').read().splitlines()
     except OSError:
         return None
+    # A multiline string can CONTAIN `key = value` and `[table]` lines while
+    # setting none of them, and a line-at-a-time reader would count them. No
+    # deployed config uses one, so a file that does is refused as unreadable
+    # rather than half-parsed (found by the whole-v4 review).
+    if any('"""' in l or "'''" in l for l in lines):
+        return None
     table, tables = '', {'': {}}
     for raw in lines:
         line = raw.split('#', 1)[0].strip()
@@ -986,16 +992,31 @@ elif op == 'settingscheck':
         print(f'exclusion cannot read {path} ({e})')
         print(f'permission cannot read {path} ({e})')
         sys.exit(0)
-    ex = (s.get('sandbox') or {}).get('excludedCommands') or []
-    if any(e in ('ask-codex *', 'ask-codex:*') for e in ex):
+    # TYPES FIRST. An object is iterable and a string supports `in`, so a
+    # structurally wrong file used to pass both checks — or, with a string where an
+    # object belongs, raise and print neither line (found by the whole-v4 review).
+    # Claude Code ignores these keys unless they are arrays of strings.
+    def child(parent, key):
+        return parent.get(key) if isinstance(parent, dict) else None
+
+    def strings(v):
+        return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+    ex = child(child(s, 'sandbox'), 'excludedCommands')
+    if not strings(ex):
+        print(f'exclusion {path}: sandbox.excludedCommands is not an array of strings, so Claude Code does not apply it — make it one, holding "ask-codex *", in ~/dotfiles/.claude/settings.json, then run bootstrap.sh')
+    elif any(e in ('ask-codex *', 'ask-codex:*') for e in ex):
         print('exclusion ok')
     elif 'ask-codex' in ex:
         print('exclusion the entry is the bare name "ask-codex", which matches nothing — replace it with "ask-codex *" in ~/dotfiles/.claude/settings.json, then run bootstrap.sh')
     else:
         print(f'exclusion {path} has no "ask-codex *" in sandbox.excludedCommands — add it in ~/dotfiles/.claude/settings.json, then run bootstrap.sh')
-    allow = (s.get('permissions') or {}).get('allow') or []
-    print('permission ok' if 'Bash(ask-codex:*)' in allow
-          else f'permission {path} has no Bash(ask-codex:*) in permissions.allow — every call would ask for approval')
+    allow = child(child(s, 'permissions'), 'allow')
+    if not strings(allow):
+        print(f'permission {path}: permissions.allow is not an array of strings, so Claude Code does not apply it — every call would ask for approval')
+    else:
+        print('permission ok' if 'Bash(ask-codex:*)' in allow
+              else f'permission {path} has no Bash(ask-codex:*) in permissions.allow — every call would ask for approval')
 
 elif op == 'normaldrift':
     # config.toml's model lines are kept for non-wrapper callers (the MCP path);
@@ -1475,17 +1496,24 @@ run_doctor() {
     doc_pass "harness — Codex can start from here"
   fi
 
+  # Both lines are REQUIRED. A helper that dies prints neither, and a check that
+  # never reports is a FAIL, not a check that silently vanished.
+  local seen_ex=0 seen_perm=0
   while IFS= read -r line; do
     case "$line" in
-      "exclusion ok")  doc_pass "exclusion — \"ask-codex *\" runs outside the command sandbox" ;;
-      "permission ok") doc_pass "permission — Bash(ask-codex:*) is allowed" ;;
-      exclusion\ *)    doc_fail exclusion "${line#exclusion }" ;;
-      permission\ *)   doc_fail permission "${line#permission }" ;;
+      "exclusion ok")  seen_ex=1;   doc_pass "exclusion — \"ask-codex *\" runs outside the command sandbox" ;;
+      "permission ok") seen_perm=1; doc_pass "permission — Bash(ask-codex:*) is allowed" ;;
+      exclusion\ *)    seen_ex=1;   doc_fail exclusion "${line#exclusion }" ;;
+      permission\ *)   seen_perm=1; doc_fail permission "${line#permission }" ;;
     esac
-  done < <(_py settingscheck "$CLAUDE_SETTINGS")
+  done < <(_py settingscheck "$CLAUDE_SETTINGS" 2>/dev/null)
+  [ "$seen_ex" = 1 ]   || doc_fail exclusion  "the settings check did not report on $CLAUDE_SETTINGS — it could not be read as Claude Code settings"
+  [ "$seen_perm" = 1 ] || doc_fail permission "the settings check did not report on $CLAUDE_SETTINGS — it could not be read as Claude Code settings"
 
-  if [ -e "$AGENT_HOME/auth.json" ]; then doc_pass "auth — $AGENT_HOME/auth.json"
-  else doc_fail auth "no auth.json in $AGENT_HOME — run 'codex login', then bootstrap.sh step 7.7"; fi
+  # A readable regular FILE — a directory or a dangling link named auth.json is
+  # not credentials. Validity is not checked: that would mean spawning codex.
+  if [ -f "$AGENT_HOME/auth.json" ] && [ -r "$AGENT_HOME/auth.json" ]; then doc_pass "auth — $AGENT_HOME/auth.json"
+  else doc_fail auth "no readable auth.json file in $AGENT_HOME — run 'codex login', then bootstrap.sh step 7.7"; fi
 
   for m in blind review gate; do
     out=$( (preflight "$m") 2>&1 ); rc=$?
