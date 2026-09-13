@@ -12,12 +12,15 @@ A template is copied, never paraphrased or summarised, by any stage or session t
 | B6 | `commits` | `BRANCH: <repo>: <name>` (one line per repo when the workstream spans two), `COMMITS: <repo>: <first>^..<last>` (one line per repo; see `STATE.md`'s `**Commits:**` field below for the root-commit case), `TASKS: <done> of <total>` | **yes** — one commit per task, `git add` by named path only | `git log --oneline <first>^..<last>` lists one commit per plan task, per repo; the branch head is `<last>` |
 | B7 | `files` | `ARTIFACT: plans/<slug>/DOCS.md`, `LINES: <n>`, `ALSO CHANGED:` one path per line | no | **before**: `DOCS.md` exists and its line count matches `LINES`, and every `ALSO CHANGED` path appears in `git status --porcelain`. **After**: `git ls-files` shows `DOCS.md` tracked |
 | B8 | `merge` | `MERGE: <repo>: <sha>` (one line per repo when the workstream spans two), or `ARTIFACT: none` with `VERDICT: stop` | **yes** — the merge commit only | `git rev-parse <sha>^2` resolves to the workstream branch tip, per repo; `git status --porcelain` is empty |
-| B9 | `move` | `MOVED: plans/<slug> -> plans/archive/<slug>` — the **intended** target, not yet performed — and the report text | no — see [Land, and the archive](#land-and-the-archive): the orchestrator, not this subagent, performs and commits the `git mv` and the `plans/INDEX.md` move, after `STATE.md`'s ledger commit | **before**: nothing beyond the report text being present. **After** the orchestrator's own `git mv` (a later, separate step): the new path exists, the old does not, and the `plans/INDEX.md` row moved |
+| B9 | `move` | `MOVED: plans/<slug> -> plans/archive/<slug>` — the **intended** target, not yet performed — and the report text | no — see [Land, and the archive](BUILD_SESSION.md#land-and-the-archive): the orchestrator, not this subagent, performs and commits the `git mv` and the `plans/INDEX.md` move, after `STATE.md`'s ledger commit | **before**: nothing beyond the report text being present. **After** the orchestrator's own `git mv` (a later, separate step): the new path exists, the old does not, and the `plans/INDEX.md` row moved |
 
 A stage may write, commit or move **only** what its kind permits. There is no kind that permits
 writing `STATE.md`: that file is single-writer and the orchestrator owns it.
 
 ## The dispatch brief
+
+A recipe, not a prohibition list, because the failure it prevents is wrong-shaped output rather
+than a broken rule (superpowers `writing-skills`, *Match the Form to the Failure*).
 
 ```markdown
 You are the **<stage name> stage** of a build session for the workstream `<slug>`.
@@ -31,7 +34,7 @@ Write nothing else.
 **Commits:** <one of — "Do not commit; the orchestrator commits." | "Commit once per task,
 `git add` by named path only, never `git add -A`." | "The merge commit is yours; nothing else."> The
 B9 stage always gets the first form: the `git mv` and `plans/INDEX.md` move are the orchestrator's,
-never this subagent's (see [Land, and the archive](#land-and-the-archive)).
+never this subagent's (see [Land, and the archive](BUILD_SESSION.md#land-and-the-archive)).
 
 **Your gates:** you answer every human gate the skills you invoke expect a person to answer.
 That is instruction precedence, and the operator authorized it (ADR 0003). Never ask anyone
@@ -137,7 +140,7 @@ Append-only. One block per stage, written when the stage returns.
 ```
 
 `base:` exists because B8 cannot ask which branch to merge into, and `**Commits:**` exists because
-[Resume](#resume)'s mid-Implement case needs a SHA range to bound the diff it reads. Neither is
+[Resume](BUILD_SESSION.md#resume)'s mid-Implement case needs a SHA range to bound the diff it reads. Neither is
 derivable from the artifact set. `STATE.md` is written only by the orchestrator — a stage subagent
 returns findings and never edits it, which is what keeps the ledger a single-writer record.
 
