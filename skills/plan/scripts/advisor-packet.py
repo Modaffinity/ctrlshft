@@ -240,3 +240,176 @@ def deps_of(path, root, tracked):
                     deps.append(Dep(os.path.realpath(candidate), 8, RULE_TIER[8]))
                     break
     return deps, unresolved, ambiguous
+
+
+CAP_FILES = 50
+CAP_BYTES = 500 * 1024
+TIER_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3}
+
+
+def packet_name(src, root):
+    # realpath, never abspath: on macOS /tmp and /var are symlinks, and a process's
+    # cwd is already resolved while a path handed in on the command line is not, so
+    # abspath alone makes a pod file look like an out-of-tree one.
+    src = os.path.realpath(src)
+    sp = superpowers_skills_root()
+    for prefix, base in (("superpowers", sp and os.path.realpath(sp)),
+                         ("dotfiles", os.path.realpath(DOTFILES)),
+                         ("dotclaude", os.path.realpath(DOTCLAUDE)),
+                         ("pod", os.path.realpath(root))):
+        if base and (src == base or src.startswith(base + os.sep)):
+            rel = os.path.relpath(src, base)
+            break
+    else:
+        prefix, rel = "ext", src.lstrip(os.sep)
+    parts = rel.split(os.sep)
+    if parts[-1].startswith("."):
+        parts[-1] = parts[-1][1:] + ".txt"
+    return prefix + "--" + "--".join(parts)
+
+
+def sha256_of(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def tracked_files(root):
+    proc = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit("error: git ls-files failed in %s: %s" % (root, proc.stderr.strip()))
+    return proc.stdout.splitlines()
+
+
+def _assign(tiers, path, tier):
+    if path not in tiers or TIER_ORDER[tier] < TIER_ORDER[tiers[path]]:
+        tiers[path] = tier
+
+
+def closure(artifact, brief, root, tracked):
+    tiers, dependents, notes = {}, {}, []
+    artifact = os.path.realpath(artifact)
+    brief = os.path.realpath(brief)
+    _assign(tiers, artifact, "A")
+    _assign(tiers, brief, "A")
+    level1 = []
+    for parent in (artifact, brief):
+        deps, unresolved, ambiguous = deps_of(parent, root, tracked)
+        notes += unresolved + ambiguous
+        for dep in deps:
+            # distinct parents, never mentions: the tier rule drops by how many packet
+            # FILES depend on a file, and a spec that names `PLAN.md` fifteen times
+            # would otherwise outrank a skill ten different files import.
+            dependents.setdefault(dep.src, set()).add(parent)
+            if dep.src in (artifact, brief):
+                continue
+            _assign(tiers, dep.src, dep.tier)
+            level1.append(dep.src)
+    for parent in sorted(set(level1)):
+        deps, unresolved, ambiguous = deps_of(parent, root, tracked)
+        notes += unresolved + ambiguous
+        for dep in deps:
+            dependents.setdefault(dep.src, set()).add(parent)
+            _assign(tiers, dep.src, "D")
+    reachable = tuple(os.path.realpath(base) + os.sep
+                      for base in (root, DOTFILES, DOTCLAUDE))
+    evicted = [p for p in sorted(tiers)
+               if tiers[p] != "A" and not p.startswith(reachable)]
+    for path in evicted:
+        # recorded AND removed: the spec says an out-of-reach dependency is not copied,
+        # so leaving it in the tiers would put it in the packet with a note beside it.
+        notes.append("out-of-reach: %s (not copied)" % path)
+        del tiers[path]
+    return tiers, dependents, notes
+
+
+def drop_to_cap(tiers, dependents):
+    kept = sorted(tiers, key=lambda p: (TIER_ORDER[tiers[p]], p))
+    dropped = []
+
+    def total_bytes(paths):
+        return sum(os.path.getsize(p) for p in paths if os.path.exists(p))
+
+    while len(kept) > CAP_FILES or total_bytes(kept) > CAP_BYTES:
+        droppable = [p for p in kept if tiers[p] != "A"]
+        if not droppable:
+            return kept, dropped
+        worst_tier = max(TIER_ORDER[tiers[p]] for p in droppable)
+        pool = [p for p in droppable if TIER_ORDER[tiers[p]] == worst_tier]
+        pool.sort(key=lambda p: (len(dependents.get(p, ())), -os.path.getsize(p)))
+        victim = pool[0]
+        kept.remove(victim)
+        dropped.append((victim, tiers[victim], len(dependents.get(victim, ()))))
+    return kept, dropped
+
+
+def write_manifest(out_dir, artifact, brief, rows, notes, dropped, cap_exceeded):
+    total = sum(size for _, _, _, size in rows)
+    lines = ["# Packet manifest — %s" % os.path.basename(artifact), "",
+             "Assembled by `advisor-packet.py` from %s, brief %s." % (artifact, brief),
+             "**%d files, %d KB** against the %d-file / %d KB cap."
+             % (len(rows), total // 1024, CAP_FILES, CAP_BYTES // 1024), "",
+             "| Flattened name | Source path | Tier | sha256 |", "|---|---|---|---|"]
+    for name, src, tier, _ in rows:
+        lines.append("| `%s` | `%s` | %s | `%s` |" % (name, src, tier, sha256_of(src)))
+    lines += ["", "## Notes", ""]
+    entries, seen = [], set()          # dedupe: one note per distinct fact, not per mention
+    for note in notes:
+        if note not in seen:
+            seen.add(note)
+            entries.append(note)
+    entries += ["dropped: %s (tier %s, %d dependents)" % d for d in dropped]
+    if cap_exceeded:
+        entries.append("cap-exceeded")
+    for entry in entries or ["none"]:
+        lines.append("- " + entry)
+    with open(os.path.join(out_dir, "MANIFEST.md"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("artifact")
+    parser.add_argument("--brief", required=True)
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--root", default=None,
+                        help="pod root for rule 6's basename search (default: git top level)")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    root = os.path.realpath(args.root) if args.root else os.path.realpath(subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip())
+    for path in (args.artifact, args.brief):
+        if not os.path.exists(path):
+            print("error: does not exist: %s" % path, file=sys.stderr)
+            return 1
+    tracked = tracked_files(root)
+    tiers, dependents, notes = closure(args.artifact, args.brief, root, tracked)
+    kept, dropped = drop_to_cap(tiers, dependents)
+    # the flag means the packet is not what the brief promised: one level of closure,
+    # whole. A tier D drop is level 2 and by design; a tier B or C drop is level 1 and
+    # is the failure. Measuring it over tier A bytes alone made it unreachable in
+    # practice — a 192-file closure cut to 21 raised nothing.
+    kept_bytes = sum(os.path.getsize(p) for p in kept if os.path.exists(p))
+    cap_exceeded = (any(tier != "D" for _, tier, _ in dropped)
+                    or len(kept) > CAP_FILES or kept_bytes > CAP_BYTES)
+    out_dir = args.out if os.path.isabs(args.out) else os.path.join(root, args.out)
+    os.makedirs(out_dir, exist_ok=True)
+    rows = []
+    for src in kept:
+        name = packet_name(src, root)
+        shutil.copy2(src, os.path.join(out_dir, name))
+        rows.append((name, src, tiers[src], os.path.getsize(src)))
+    rows.sort()
+    write_manifest(out_dir, os.path.abspath(args.artifact), os.path.abspath(args.brief),
+                   rows, notes, dropped, cap_exceeded)
+    print("%d files, %d KB -> %s" % (len(rows), sum(r[3] for r in rows) // 1024, out_dir))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
