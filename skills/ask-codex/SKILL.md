@@ -147,6 +147,10 @@ duration, a stable cause token, the evidence directory, the Codex CLI version. N
 names; repository paths *are* in it. Nothing to maintain: it exists so "how often does this fail, and
 how?" has an answer that is not archaeology.
 
+**When the line cannot be written, the wrapper says so on stderr** — `run log NOT written: <path>` —
+and the run keeps its own exit code. There is no fallback log: that stderr line is the record, so
+quote it when you report the run.
+
 ## Cost
 
 Every call spends ChatGPT quota, `gate` most because it runs a suite. A note, not a gate: this costs

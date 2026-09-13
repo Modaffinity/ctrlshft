@@ -111,16 +111,26 @@ log_run() { # $1 = exit code
   [ "$LOG_CAUSE" = unknown ] && LOG_CAUSE=$(cause_from_code "$1")
   local dir="${ASK_CODEX_STATE:-${XDG_STATE_HOME:-$REAL_HOME/.local/state}/ask-codex}"
   # A full disk, an unwritable directory or a failed line must never turn a
-  # successful review into a wrapper failure. Every path here returns 0.
-  mkdir -p "$dir" 2>/dev/null || return 0
-  local line
+  # successful review into a wrapper failure, so every path returns 0 — but none
+  # returns QUIETLY. Inside a caller's command sandbox this directory is
+  # unwritable, and a silent return lost the one record of exactly the refusals
+  # the log exists for. There is no fallback location: this stderr line IS the
+  # record, and a second log in $TMPDIR would be lost per session anyway.
+  local log="$dir/runs.jsonl" line
+  mkdir -p "$dir" 2>/dev/null || { log_lost "$log" "cannot create its directory"; return 0; }
   line=$(_py logline "$LOG_CAUSE" "$1" "$LOG_FENCE" "$LOG_INFERRED" "$INVOKED_IN" \
                      "$LOG_EVIDENCE" "$LOG_FILES" "$LOG_BYTES" "$SECONDS" \
-                     "$LOG_VERSION" "$LOG_PROFILE" 2>/dev/null) || return 0
+                     "$LOG_VERSION" "$LOG_PROFILE" 2>/dev/null) \
+    || { log_lost "$log" "could not assemble the line"; return 0; }
   # ONE O_APPEND write of one bounded line, so concurrent runs interleave whole
   # lines rather than corrupting each other.
-  printf '%s\n' "$line" >> "$dir/runs.jsonl" 2>/dev/null || return 0
+  printf '%s\n' "$line" >> "$log" 2>/dev/null || { log_lost "$log" "the append was refused"; return 0; }
   return 0
+}
+
+log_lost() { # log-path  what-failed
+  printf 'ask-codex: run log NOT written: %s (%s) — this message is the only record of this run\n' \
+    "$1" "$2" >&2
 }
 
 say()  { printf 'ask-codex: %s\n' "$1" >&2; }
@@ -846,6 +856,19 @@ profile_for() { case "$1" in scoped) printf 'blind' ;; *) printf '%s' "$1" ;; es
 # that one as "WARNING: proceeding, even though we could not create PATH
 # aliases" and continues past it, so a probe aimed there would refuse runs that
 # would have completed.
+# What both harness-sandbox sites say. It sends the caller to the INSTALL, never
+# around the harness: the earlier "re-run with that sandbox bypassed" told every
+# calling agent to trigger an approval prompt, in every pod whose settings lacked
+# the exclusion — which was every pod but codex-bridge.
+say_install_incomplete() {
+  say "install incomplete — stop. ask-codex must run outside the calling harness's command"
+  say "sandbox: \"ask-codex\" belongs in sandbox.excludedCommands in ~/.claude/settings.json"
+  say "(source ~/dotfiles/.claude/settings.json, deployed by ~/dotfiles/bin/bootstrap.sh)."
+  say "do not re-run with the sandbox disabled — that puts an approval prompt on every call,"
+  say "and the harness sandbox is not this wrapper's fence: the fence is"
+  say "$AGENT_HOME/<profile>.config.toml and an empty cwd."
+}
+
 sandbox_will_refuse_codex() {
   local probe="$AGENT_HOME/.ask-codex-sandbox-probe.$$"
   if ( umask 077; : > "$probe" ) 2>/dev/null; then
@@ -869,11 +892,11 @@ preflight() {
   # Detect before spending. The observed failure copied every named byte in and
   # THEN died with an empty stream; on a large fence that is not free.
   if sandbox_will_refuse_codex; then
-    say "the calling harness's command sandbox denies writes to $AGENT_HOME."
-    say "Codex keeps its state databases there and cannot start without them, so"
-    say "this run would produce an empty event stream after copying everything in."
-    say "re-run with that sandbox bypassed. It is NOT this wrapper's fence —"
-    die "the fence is $AGENT_HOME/<profile>.config.toml and an empty cwd, which it does not contribute to" $EX_ENV
+    cause harness-sandbox
+    say "the calling harness's command sandbox denies writes to $AGENT_HOME, where Codex"
+    say "keeps the state databases it cannot start without. Nothing was copied in."
+    say_install_incomplete
+    exit $EX_ENV
   fi
 
   grep -qE '^[[:space:]]*sandbox_mode[[:space:]]*=[[:space:]]*"read-only"' "$base" \
@@ -1498,9 +1521,8 @@ main() {
     cause no-stream
     if [ -n "$cause" ]; then
       say "the run never started: $cause"
-      say "this is the calling harness's command sandbox, not Codex and not the fence."
       say "Codex keeps its state databases in $AGENT_HOME and could not open them."
-      say "re-run with that sandbox bypassed."
+      say_install_incomplete
     else
       say "the run did not complete cleanly: ${status:-the event stream could not be read}"
       say "last stderr: $(tail -c 400 "$RUN_SCRATCH/codex-stderr.log" 2>/dev/null | tr '\n' ' ')"
