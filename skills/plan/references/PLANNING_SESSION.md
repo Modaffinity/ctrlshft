@@ -63,7 +63,7 @@ decision with its reasoning. Superpowers brainstorming is **not** invoked here.
 ⚠️ **P3 overrides the installed `research` skill's output path.** That skill files to
 `context/research/<topic>/` and regenerates its index with
 `bash scripts/build-index.sh context/research`. A CortexOS pod files to `research/<topic>/`
-(`research/CLAUDE.md`, and [ARCHITECTURE.md's conventions](../../ARCHITECTURE.md#conventions)), so P3's
+(`research/CLAUDE.md`, and `ARCHITECTURE.md`'s conventions), so P3's
 dispatch states the pod's path explicitly, says that the skill's own default differs, and passes
 `research` as the root argument to both `build-index.sh` and `check-surface.sh`. The target pod's
 convention wins; a spine that inherited the skill's default would file every workstream's prior-art
