@@ -318,7 +318,7 @@
       ]
     },
     "excludedCommands": [
-      "ask-codex"
+      "ask-codex *"
     ],
     "network": {
       "allowedDomains": [
