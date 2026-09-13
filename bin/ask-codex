@@ -864,7 +864,8 @@ profile_for() { case "$1" in scoped) printf 'blind' ;; *) printf '%s' "$1" ;; es
 # the exclusion — which was every pod but codex-bridge.
 say_install_incomplete() {
   say "install incomplete — stop. ask-codex must run outside the calling harness's command"
-  say "sandbox: \"ask-codex\" belongs in sandbox.excludedCommands in ~/.claude/settings.json"
+  say "sandbox: \"ask-codex *\" belongs in sandbox.excludedCommands in ~/.claude/settings.json —"
+  say "the pattern, because a bare \"ask-codex\" entry matches nothing"
   say "(source ~/dotfiles/.claude/settings.json, deployed by ~/dotfiles/bin/bootstrap.sh)."
   say "do not re-run with the sandbox disabled — that puts an approval prompt on every call,"
   say "and the harness sandbox is not this wrapper's fence: the fence is"
