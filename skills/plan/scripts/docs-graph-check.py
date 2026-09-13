@@ -22,6 +22,17 @@ EXCLUDED = (".git", ".claude", ".superpowers", "node_modules", "__pycache__",
 
 MAX_DEPTH = 4
 
+# A file that is appended to by contract cannot live under a line cap: the documentation
+# stage's item 5 appends one entry to RUN_REPORT.md every run. Matched by BASENAME.
+SIZE_EXEMPT = ("RUN_REPORT.md",)
+
+# A workstream's own BRIEF/SPEC/PLAN/STATE/DOCS is a third document kind: its length is a
+# function of the work it records, not of how readable it is as doctrine (spec ruling R15).
+# Matched by RELATIVE PATH, one glob segment at a time.
+SIZE_EXEMPT_GLOB = ("plans/*/*.md", "plans/archive/*/*.md")
+
+FM_SERVES = re.compile(r"^serves:\s*\S", re.M)
+
 FENCE = re.compile(r"^\s*(```|~~~)")
 # [^`\n]*, never [^`]*: the wider form lets one stray unpaired backtick pair with the
 # opening backtick of a real code span lines below it and delete every link between
@@ -147,6 +158,85 @@ def check_tracked(root, reached, tracked):
     return out
 
 
+def line_count(path):
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return sum(1 for _ in fh)
+
+
+def glob_match(rel, pattern):
+    """fnmatch one path segment at a time, so `*` never crosses a separator. Bare
+    fnmatch would let `plans/*/*.md` swallow `plans/a/notes/b.md`."""
+    parts = rel.split(os.sep)
+    pats = pattern.split("/")
+    if len(parts) != len(pats):
+        return False
+    return all(fnmatch.fnmatchcase(p, q) for p, q in zip(parts, pats))
+
+
+def size_budget(rel, profile, start):
+    if profile == "package":
+        return 300 if rel == start else 500
+    base = os.path.basename(rel)
+    if base == "ARCHITECTURE.md":
+        return 300
+    if os.sep not in rel:            # any root-level .md, README.md included
+        return 200
+    if base == "INDEX.md":           # any */INDEX.md
+        return 200
+    return 500
+
+
+def check_size(root, cands, profile, start):
+    findings, exempt = [], []
+    for rel in cands:
+        try:
+            count = line_count(os.path.join(root, rel))
+        except OSError:
+            continue
+        if os.path.basename(rel) in SIZE_EXEMPT:
+            exempt.append(("exempt", rel,
+                           "%d lines; size check skipped (appended to by contract)" % count))
+            continue
+        if any(glob_match(rel, pat) for pat in SIZE_EXEMPT_GLOB):
+            exempt.append(("exempt", rel,
+                           "%d lines; size check skipped (workstream artifact)" % count))
+            continue
+        budget = size_budget(rel, profile, start)
+        if count > budget:
+            findings.append(("oversize", rel, "%d lines (budget %d)" % (count, budget)))
+    return findings, exempt
+
+
+def has_serves(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            if fh.readline().strip() != "---":
+                return False
+            block = []
+            for line in fh:
+                if line.strip() == "---":
+                    break
+                block.append(line)
+    except OSError:
+        return False
+    return bool(FM_SERVES.search("".join(block)))
+
+
+def check_serves(root, reached, profile):
+    """Check 5 runs under --profile pod only: a skill package's files carry the skill's
+    frontmatter, not a pod document's."""
+    if profile != "pod":
+        return []
+    out = []
+    for rel in reached:
+        path = os.path.join(root, rel)
+        if not rel.endswith(".md") or os.path.isdir(path):
+            continue
+        if not has_serves(path):
+            out.append(("no-serves", rel, "frontmatter has no serves: field"))
+    return out
+
+
 def git_top_level():
     proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     if proc.returncode != 0:
@@ -173,6 +263,11 @@ def main(argv=None):
     _, findings, reached = walk(root, args.start)
     findings += check_orphans(cands, reached, args.start)
     findings += check_tracked(root, reached, tracked)
+    size_findings, exempt = check_size(root, cands, args.profile, args.start)
+    findings += size_findings
+    findings += check_serves(root, reached, args.profile)
+    for kind, path, detail in sorted(exempt):
+        print("%s: %s: %s" % (kind, path, detail))
     for kind, path, detail in sorted(findings):
         print("%s: %s: %s" % (kind, path, detail))
     return 1 if findings else 0
