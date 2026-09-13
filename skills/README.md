@@ -49,7 +49,7 @@ explicitly via [commands/](../commands/README.md).
 | `improve-architecture` | "improve architecture", "find shallow modules" | Deep module analysis for architectural improvements |
 | `npm-security-audit` | "is this package safe", "audit this project" | Layered security audit before npm install |
 | `opensrc` | "fetch source for", "how does X work internally", "get the implementation of" | Fetches dependency source so the agent can read a library's internals |
-| `plan` | "/carve", "break this down", "what should we build first" | Vague idea → vision / branches / goals, emitted as dispatchable CortexOS work packets |
+| `plan` | "plan <idea>", "start a workstream", "/plan", "/carve" | The spine: one workstream from idea to final documentation in a CortexOS pod. `/carve` still reaches v1's goal-emission procedure |
 | `plan-archive` | After merging a PR, or periodic cleanup | Archives plan-mode files by linking them to the merged PR |
 | `prd-to-issues` | "break this PRD into issues", "create a kanban" | PRD → vertical slices → GitHub issues (AFK/HITL labeled) |
 | `pr-preflight` | "/preflight", "pre-PR audit" | Exhaustive pre-PR audit that front-runs review tools |
