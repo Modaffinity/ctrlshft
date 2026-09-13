@@ -123,8 +123,10 @@ log_run() { # $1 = exit code
                      "$LOG_VERSION" "$LOG_PROFILE" 2>/dev/null) \
     || { log_lost "$log" "could not assemble the line"; return 0; }
   # ONE O_APPEND write of one bounded line, so concurrent runs interleave whole
-  # lines rather than corrupting each other.
-  printf '%s\n' "$line" >> "$log" 2>/dev/null || { log_lost "$log" "the append was refused"; return 0; }
+  # lines rather than corrupting each other. The braces are load-bearing: in
+  # `>> file 2>/dev/null` the append fails before 2>/dev/null applies, and bash
+  # prints its own error beside the one below.
+  { printf '%s\n' "$line" >> "$log"; } 2>/dev/null || { log_lost "$log" "the append was refused"; return 0; }
   return 0
 }
 
