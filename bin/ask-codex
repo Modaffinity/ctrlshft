@@ -1661,8 +1661,6 @@ main() {
   fi
   printf 'ask-codex: evidence=%s\n' "$out"
   printf 'SESSION_ID=%s\n' "$session"
-  printf 'ask-codex: follow up with — CODEX_HOME=%s %s exec -p %s resume %s\n' \
-    "$AGENT_HOME" "$CODEX_BIN" "$(profile_for "$mode")" "$session"
 
   case "$verdict" in
     FAIL)          exit $EX_GATE_FAIL ;;
