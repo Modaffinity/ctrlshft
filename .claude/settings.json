@@ -4,7 +4,7 @@
     "PLANE_WORKSPACE_SLUG": "modaffinity"
   },
   "theme": "dark",
-  "effortLevel": "xhigh",
+  "effortLevel": "high",
   "permissions": {
     "allow": [
       "Bash(grep:*)",
@@ -317,6 +317,9 @@
         "~/dotfiles/secrets"
       ]
     },
+    "excludedCommands": [
+      "ask-codex"
+    ],
     "network": {
       "allowedDomains": [
         "api.anthropic.com",
