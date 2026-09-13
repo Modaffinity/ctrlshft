@@ -83,6 +83,9 @@ RUN_TREE="" RUN_SCRATCH=""
 # "named" would report a fence the caller never chose.
 LOG_CAUSE="unknown" LOG_FENCE="none" LOG_PROFILE="" LOG_INFERRED=""
 LOG_FILES=0 LOG_BYTES=0 LOG_VERSION="" LOG_EVIDENCE="" LOGGED=0
+# Set ONLY from `_py resolve`'s validated output, never from caller text — so a
+# refused value logs null, and these three are safe to place in codex's argv.
+LOG_DEPTH="" LOG_MODEL="" LOG_EFFORT=""
 # Captured once, because the wrapper changes directory while building disposable
 # trees — $PWD during cleanup is not the repository the caller invoked this in.
 INVOKED_IN="$PWD"
@@ -120,7 +123,8 @@ log_run() { # $1 = exit code
   mkdir -p "$dir" 2>/dev/null || { log_lost "$log" "cannot create its directory"; return 0; }
   line=$(_py logline "$LOG_CAUSE" "$1" "$LOG_FENCE" "$LOG_INFERRED" "$INVOKED_IN" \
                      "$LOG_EVIDENCE" "$LOG_FILES" "$LOG_BYTES" "$SECONDS" \
-                     "$LOG_VERSION" "$LOG_PROFILE" 2>/dev/null) \
+                     "$LOG_VERSION" "$LOG_PROFILE" \
+                     "$LOG_DEPTH" "$LOG_MODEL" "$LOG_EFFORT" 2>/dev/null) \
     || { log_lost "$log" "could not assemble the line"; return 0; }
   # ONE O_APPEND write of one bounded line, so concurrent runs interleave whole
   # lines rather than corrupting each other. The braces are load-bearing: in
@@ -197,6 +201,13 @@ never a flag you pass: there is no sandbox option, and there never will be.
         Codex runs this repo's suite inside a disposable clone and files a
         verdict (profile: gate, workspace-write confined to that clone).
 
+How hard Codex thinks — never how far it can reach. Any mode takes these:
+  --depth quick|normal|deep   a model and effort pair from ~/.codex-agent/depths.toml
+                              (default: normal)
+  --model <slug>              a model listed in ~/.codex-agent/models_cache.json
+  --effort <level>            a level that model supports. Higher spends more quota.
+  A value that is not listed is refused, naming what is.
+
 The four modes above remain valid and unchanged — `ask-codex scoped docs/ -- 'q'`
 means exactly what it always did. They are spelled out because naming the mode
 is still the way to reach `review` and `gate`, and the way to be explicit.
@@ -227,6 +238,34 @@ def read_z(p):
 
 def read_bytes_z(b):
     return [x.decode('utf-8', 'surrogateescape') for x in b.split(b'\0') if x]
+
+def read_tables(path):
+    # The one TOML reader here: `[table]` headers, `key = value`, `#` comments.
+    # Top-level keys live under ''. Values are kept RAW — `false` and `"false"`
+    # stay different. No tomllib: macOS system python3 may predate 3.11. Valid TOML
+    # it does not understand (dotted keys, inline tables, quoted headers) leaves a
+    # key unfound, and every caller refuses an unfound key — the safe direction.
+    try:
+        lines = open(path, errors='replace').read().splitlines()
+    except OSError:
+        return None
+    table, tables = '', {'': {}}
+    for raw in lines:
+        line = raw.split('#', 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith('[['):
+            table = None
+        elif line.startswith('[') and line.endswith(']'):
+            table = ''.join(line[1:-1].split())
+            tables.setdefault(table, {})
+        elif '=' in line and table is not None:
+            k, v = (x.strip() for x in line.split('=', 1))
+            tables[table][k] = v
+    return tables
+
+def unquote(v):
+    return v[1:-1] if v and len(v) >= 2 and v[0] == v[-1] == '"' else None
 
 if op == 'seed':
     # Two jobs, done here because both turn on exact path handling that shell
@@ -774,7 +813,8 @@ elif op == 'gitconfig':
         print("STATUS=ok")
 
 elif op == 'logline':
-    cause, code, fence, inferred, repo, evidence, files, nbytes, secs, ver, prof = sys.argv[2:13]
+    (cause, code, fence, inferred, repo, evidence, files, nbytes, secs, ver, prof,
+     depth, model, effort) = sys.argv[2:16]
     import datetime
     # Emitted through python because bash cannot escape JSON safely. NO prompt
     # text, NO file contents, NO file names. repo_path DOES carry client and
@@ -792,6 +832,8 @@ elif op == 'logline':
         "cause": cause, "exit": int(code or 0),
         "codex_version": ver.strip() or None,
         "evidence": evidence or None,
+        # null unless resolved: the caller's refused string is never recorded.
+        "depth": depth or None, "model": model or None, "effort": effort or None,
     }, separators=(',', ':')))
 
 elif op == 'cliversion':
@@ -839,26 +881,88 @@ elif op == 'skillskeys':
     # key, an inline table, a quoted header — leaves a key unfound and the file is
     # refused. That is the safe direction; guessing is not.
     path = sys.argv[2]
-    table, found = None, {}
-    try:
-        lines = open(path, errors='replace').read().splitlines()
-    except OSError as e:
-        print(f"cannot be read ({e})"); sys.exit(0)
-    for raw in lines:
-        line = raw.split('#', 1)[0].strip()
-        if not line:
-            continue
-        if line.startswith('[['):
-            table = None
-        elif line.startswith('[') and line.endswith(']'):
-            table = ''.join(line[1:-1].split())
-        elif '=' in line and table in ('skills', 'skills.bundled'):
-            k, v = (x.strip() for x in line.split('=', 1))
-            found[(table, k)] = v
+    tables = read_tables(path)
+    if tables is None:
+        print("cannot be read"); sys.exit(0)
     need = [(('skills', 'include_instructions'), 'include_instructions = false under [skills]'),
             (('skills.bundled', 'enabled'), 'enabled = false under [skills.bundled]')]
-    missing = [msg for key, msg in need if found.get(key) != 'false']
+    missing = [msg for (t, k), msg in need if tables.get(t, {}).get(k) != 'false']
     print('ok' if not missing else 'does not set ' + ' or '.join(missing))
+
+elif op == 'resolve':
+    # Depth, model and effort: from a CLOSED list, checked against Codex's own
+    # model cache, before codex receives a single argument. The last widening of
+    # this argv ran a command outside the sandbox (Task 5, cycle 1), so no caller
+    # string is passed through: every value printed on the OK line has matched a
+    # strict shape AND appears in the cache.
+    #
+    # The configured mapping is validated WHOLE on every run, whichever depth was
+    # asked for — a broken [deep] must not wait for the first caller who asks.
+    #
+    # Prints one line: `OK <depth> <model> <effort>`, `USAGE <cause> <message>`
+    # (exit 3, a caller mistake) or `ENV <message>` (exit 4, the install).
+    import re
+    home, want_depth, want_model, want_effort = sys.argv[2:6]
+    DEPTHS = ['quick', 'normal', 'deep']
+    EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+    SLUG = re.compile(r'^[a-z0-9][a-z0-9.-]*$')
+    dpath = os.path.join(home, 'depths.toml')
+    cpath = os.path.join(home, 'models_cache.json')
+
+    def env(msg):
+        print('ENV ' + msg); sys.exit(0)
+
+    def usage(cause, msg):
+        print(f'USAGE {cause} {msg}'); sys.exit(0)
+
+    try:
+        cache = json.load(open(cpath))
+    except (OSError, ValueError) as e:
+        env(f"cannot read the model cache {cpath} ({e}) — Codex writes it; run one Codex session, then retry")
+    listed = {}
+    for m in (cache.get('models') or []) if isinstance(cache, dict) else []:
+        if isinstance(m, dict) and m.get('visibility') == 'list' and isinstance(m.get('slug'), str):
+            levels = [l.get('effort') if isinstance(l, dict) else l
+                      for l in (m.get('supported_reasoning_levels') or [])]
+            listed[m['slug']] = [l for l in levels if isinstance(l, str)]
+    names = ' '.join(listed) or '(none listed)'
+
+    tables = read_tables(dpath)
+    if tables is None:
+        env(f"cannot read {dpath} — run ~/dotfiles/bin/bootstrap.sh (step 7.7 deploys it)")
+    for d in DEPTHS:
+        t = tables.get(d)
+        if t is None:
+            env(f"{dpath} has no [{d}] table — every depth must be configured")
+        for k in ('model', 'effort'):
+            if k not in t:
+                env(f"{dpath} [{d}] has no {k}")
+        m, e = unquote(t['model']), unquote(t['effort'])
+        if not (m and SLUG.match(m) and m in listed):
+            env(f"{dpath} [{d}] model {t['model']} is not listed in {cpath} — listed: {names}")
+        if not (e in EFFORTS and e in listed[m]):
+            env(f"{dpath} [{d}] effort {t['effort']} is not one {m} supports: {' '.join(listed[m])}")
+    base = read_tables(os.path.join(home, 'config.toml')) or {}
+    if 'model' in base.get('', {}):
+        cm = unquote(base['']['model'])
+        if not (cm and SLUG.match(cm) and cm in listed):
+            env(f"{home}/config.toml model {base['']['model']} is not listed in {cpath} — listed: {names}")
+
+    if want_depth and want_depth not in DEPTHS:
+        usage('usage', f"unknown depth '{want_depth}' — choose one of: {' '.join(DEPTHS)}")
+    depth = want_depth or 'normal'
+    model, effort = unquote(tables[depth]['model']), unquote(tables[depth]['effort'])
+    if want_model:
+        if not (SLUG.match(want_model) and want_model in listed):
+            usage('bad-model', f"model '{want_model}' is not listed in the model cache — available: {names}")
+        model = want_model
+    if want_effort:
+        if want_effort not in EFFORTS:
+            usage('bad-effort', f"'{want_effort}' is not an effort level — {model} supports: {' '.join(listed[model])}")
+        effort = want_effort
+    if effort not in listed[model]:
+        usage('bad-effort', f"{model} does not support effort '{effort}' — it supports: {' '.join(listed[model])}")
+    print(f'OK {depth} {model} {effort}')
 
 else:
     sys.exit(f"unknown op {op}")
@@ -1154,7 +1258,7 @@ run_review() {
   # No caller text reaches this argv at all — main() refuses review instructions
   # outright, because codex has nowhere to put them. The only caller-controlled
   # element left is scope_val, whose shape is checked in the parser.
-  local -a argv=("$CODEX_BIN" exec -p review --json review)
+  local -a argv=("$CODEX_BIN" exec -p review -m "$LOG_MODEL" -c "model_reasoning_effort=\"$LOG_EFFORT\"" --json review)
   case "$scope_flag" in
     --uncommitted) argv+=(--uncommitted) ;;
     --base)        argv+=(--base "$scope_val") ;;
@@ -1193,7 +1297,7 @@ the caller reads your answer, and a citation nobody can follow is not one."
 
 The caller asks: $extra"
 
-  local -a argv=("$CODEX_BIN" exec -p blind --json --skip-git-repo-check -C "$dir" -)
+  local -a argv=("$CODEX_BIN" exec -p blind -m "$LOG_MODEL" -c "model_reasoning_effort=\"$LOG_EFFORT\"" --json --skip-git-repo-check -C "$dir" -)
   printf '%s\n' "${argv[*]}" > "$out/invocation.txt"
   printf '%s\n' "$prompt" > "$out/prompt.txt"
   "${argv[@]}" < "$out/prompt.txt" \
@@ -1227,7 +1331,7 @@ $(cat "$RUN_SCRATCH/change.diff")
   # No caller-controlled text reaches argv: the prompt travels on stdin, which is
   # what `-` names. That is the same door cycle 1 found open on the review path,
   # closed here by construction rather than by refusing the feature.
-  local -a argv=("$CODEX_BIN" exec -p blind --json --skip-git-repo-check -C "$empty" -)
+  local -a argv=("$CODEX_BIN" exec -p blind -m "$LOG_MODEL" -c "model_reasoning_effort=\"$LOG_EFFORT\"" --json --skip-git-repo-check -C "$empty" -)
   printf '%s\n' "${argv[*]}" > "$out/invocation.txt"
   printf '%s\n' "$prompt" > "$out/prompt.txt"
   "${argv[@]}" < "$out/prompt.txt" \
@@ -1286,7 +1390,7 @@ $extra"
   mkdir -p "$tree/.ask-codex-tmp"
   # Same rule as run_review: the prompt goes on stdin, never argv. It carries the
   # caller's text, so it is caller-controlled however wrapper-authored it looks.
-  local -a argv=("$CODEX_BIN" exec -p gate --json -C "$tree" -- -)
+  local -a argv=("$CODEX_BIN" exec -p gate -m "$LOG_MODEL" -c "model_reasoning_effort=\"$LOG_EFFORT\"" --json -C "$tree" -- -)
   { printf '%s\n' "${argv[*]}"; printf '(prompt, delivered on stdin)\n%s\n' "$prompt"; } > "$out/invocation.txt"
 
   # TMPDIR is redirected INTO the tree: the profile excludes the real $TMPDIR and
@@ -1344,6 +1448,7 @@ main() {
   # asked for a diff" from "the caller asked for nothing" — and the forbidden
   # paths-plus-scope combination would sail through silently.
   local scope_flag="--uncommitted" scope_val="" extra="" scope_explicit=0
+  local opt_depth="" opt_model="" opt_effort=""
   local blind_lines="" blind_binaries="" scoped_files="" scoped_bytes="" scoped_omitted=""
   local -a paths=()
   while [ $# -gt 0 ]; do
@@ -1359,6 +1464,18 @@ main() {
         # the neighbouring door to the one cycle 1 found open.
         case "$2" in -*) say "'$2' is not a ref — a branch or sha cannot begin with '-'"; usage ;; esac
         scope_flag="$1"; scope_val="$2"; scope_explicit=1; shift 2 ;;
+      --depth|--model|--effort)
+        # Collected as RAW text and validated by `_py resolve` before preflight;
+        # nothing here reaches codex. A value that begins with '-' is an option
+        # the caller meant to pass through — refused exactly as for --base.
+        [ $# -ge 2 ] || { say "$1 needs a value"; usage; }
+        case "$2" in -*) say "$1 needs a value — '$2' is an option, not a value"; usage ;; esac
+        case "$1" in
+          --depth)  opt_depth="$2" ;;
+          --model)  opt_model="$2" ;;
+          --effort) opt_effort="$2" ;;
+        esac
+        shift 2 ;;
       -h|--help) usage ;;
       --) shift; extra="${extra:+$extra }$*"; break ;;
       -*)
@@ -1419,6 +1536,27 @@ main() {
     say "'ask-codex gate <instructions>', or the MCP codex tool for a free-form ask."
     exit $EX_USAGE
   fi
+
+  # BEFORE preflight and before anything is copied: a refused value is exit 3
+  # even inside a caller's sandbox, and codex receives zero arguments. Only the
+  # validated OK line ever sets what reaches codex's argv.
+  local resolved
+  resolved=$(_py resolve "$AGENT_HOME" "$opt_depth" "$opt_model" "$opt_effort") \
+    || die "could not resolve depth, model and effort" $EX_ENV
+  case "$resolved" in
+    "OK "*)
+      set -- $resolved
+      LOG_DEPTH="$2" LOG_MODEL="$3" LOG_EFFORT="$4" ;;
+    "USAGE "*)
+      set -- $resolved
+      cause "$2"
+      say "${resolved#USAGE "$2" }"
+      exit $EX_USAGE ;;
+    "ENV "*)
+      die "${resolved#ENV }" $EX_ENV ;;
+    *)
+      die "unexpected answer resolving depth, model and effort: $resolved" $EX_ENV ;;
+  esac
 
   preflight "$mode"
 
@@ -1610,6 +1748,9 @@ main() {
     printf 'date: %s\n' "$(date -u +%Y-%m-%d)"
     printf 'mode: %s\n' "$mode"
     printf 'profile: %s\n' "$mode"
+    printf 'depth: %s\n' "$LOG_DEPTH"
+    printf 'model: %s\n' "$LOG_MODEL"
+    printf 'effort: %s\n' "$LOG_EFFORT"
     printf 'repo: %s\n' "$repo"
     if [ "$mode" = gate ]; then
       printf 'verdict: %s\n' "$verdict"

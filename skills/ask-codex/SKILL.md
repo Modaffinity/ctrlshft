@@ -29,6 +29,16 @@ two different requests). Each refusal names the alternative.
 Every run files `evidence/codex-<mode>-<stamp>/` in the current repo — the report, the exact
 invocation, the raw event stream, and what the model actually executed.
 
+### How to choose — `--depth`, or `--model` / `--effort` outright
+
+- A quick check → `--depth quick` (low effort).
+- A review → the default `normal` (medium), or `--depth deep` (high) when the change is subtle.
+- A gate, or an adversarial review you will act on → `--depth deep`, or `--effort xhigh` and above.
+- Higher effort spends more quota; `ultra` spends the most. Depth changes how hard Codex thinks, never
+  what it can reach.
+- Level and model names come from Codex's model cache, not from this page: a refused value lists what
+  is available.
+
 ## The two words you still type
 
 Inference never selects these. A wider fence is asked for by name.
