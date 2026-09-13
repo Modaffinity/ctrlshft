@@ -14,9 +14,10 @@ One dispatch of one advisor over one packet, returning findings. Two kinds, both
 
 **Every round is a fresh advisor over a freshly assembled packet.** The packet is re-built from the
 current artifact each round and its manifest sha256s prove which bytes were reviewed. A fixed
-advisor carried across rounds produces stale findings. The orchestrator verifies every returned
-finding against the current artifact before it enters the open-findings list; one that no longer
-reproduces is recorded as `stale` and closed with that reason. Verification is a step, not a habit.
+advisor was measured to produce three rounds of stale findings in a termination probe. The
+orchestrator verifies every returned finding against the current artifact before it enters the
+open-findings list; one that no longer reproduces is recorded as `stale` and closed with that
+reason. Verification is a step, not a habit, because it is what kept that probe honest.
 
 **Never treat an unavailable `ask-codex` as license to use `mcp__codex__codex` instead — that
 substitution silently drops the containment the round exists to provide.**
@@ -130,12 +131,13 @@ prose reminder to be skimmed:
 - [ ] `plans/<slug>/BRIEF.md`;
 - [ ] every file in the artifact's dependency set (level 1);
 - [ ] every file in the dependency set of each level-1 file (level 2) — the one level of closure
-      beyond what the artifact names, and the level whose absence let a violated convention survive
-      a review unnoticed.
+      beyond what the artifact names, and the level whose absence let a fixture idiom survive two
+      reviews.
 
 ## Overflow
 
-**Cap: 50 files or 500 KB, whichever binds first.**
+**Cap: 50 files or 500 KB, whichever binds first.** A 41-file packet was measured to run through
+`ask-codex` without trouble, so the cap sits just above the only size measured to work.
 
 On overflow, files are dropped in tier order — the earlier tiers are dropped last:
 
@@ -150,7 +152,16 @@ Within a tier, drop in ascending order of how many packet files depend on the fi
 descending file size. **Name every dropped file in the manifest**, with its tier and the count that
 placed it — a silent drop is precisely the failure this rule exists to prevent.
 
-If tier A alone exceeds the byte cap the round runs anyway and the manifest records
+**`cap-exceeded`.** The spec's clause is narrow — it fires only when tier A alone exceeds the byte
+cap. The shipped `advisor-packet.py` broadens it: `cap-exceeded` fires whenever any tier B or C
+(level-1) file is dropped, or the kept set is still over either cap after dropping everything
+droppable. A tier D drop is level 2 and by design; a tier B or C drop means the packet no longer
+carries the one level of closure the brief promises, which is the failure the flag exists to name.
+The narrow form was measured unreachable in practice: on this package's own review packet, cutting a
+192-file closure down to 21 to fit the byte cap dropped 171 files — 37 of them level-1 tier C — and
+raised nothing, because tier A alone never exceeded the cap.
+
+If tier A alone exceeds the byte cap, the round still runs and the manifest still records
 `cap-exceeded`: the artifact plus the brief is the minimum viable packet, and refusing to review is
 worse than reviewing a large one.
 
