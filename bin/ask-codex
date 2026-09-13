@@ -827,6 +827,39 @@ elif op == 'cliversion':
     except (OSError, json.JSONDecodeError):
         pass
 
+elif op == 'skillskeys':
+    # The two keys that close the host skill catalog, read by TABLE, never by
+    # line. Unknown keys inside [skills] are dropped silently (measured, bridge-v3
+    # Task 3), so `include_instruction`, or `enabled = false` one table too high,
+    # parses, looks right to a grep, and hands Codex 43 skill paths its fence
+    # denies. No tomllib: macOS system python3 may predate 3.11.
+    #
+    # A deliberately small reader: table headers, `key = value`, `#` comments.
+    # Valid TOML it does not understand — a dotted `skills.include_instructions`
+    # key, an inline table, a quoted header — leaves a key unfound and the file is
+    # refused. That is the safe direction; guessing is not.
+    path = sys.argv[2]
+    table, found = None, {}
+    try:
+        lines = open(path, errors='replace').read().splitlines()
+    except OSError as e:
+        print(f"cannot be read ({e})"); sys.exit(0)
+    for raw in lines:
+        line = raw.split('#', 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith('[['):
+            table = None
+        elif line.startswith('[') and line.endswith(']'):
+            table = ''.join(line[1:-1].split())
+        elif '=' in line and table in ('skills', 'skills.bundled'):
+            k, v = (x.strip() for x in line.split('=', 1))
+            found[(table, k)] = v
+    need = [(('skills', 'include_instructions'), 'include_instructions = false under [skills]'),
+            (('skills.bundled', 'enabled'), 'enabled = false under [skills.bundled]')]
+    missing = [msg for key, msg in need if found.get(key) != 'false']
+    print('ok' if not missing else 'does not set ' + ' or '.join(missing))
+
 else:
     sys.exit(f"unknown op {op}")
 PYEOF
@@ -944,6 +977,15 @@ preflight() {
     grep -qE '^[[:space:]]*web_search[[:space:]]*=[[:space:]]*"disabled"' "$prof" \
       || die "$prof does not disable web search — blind would not be blind" $EX_ENV
   fi
+
+  # The skill catalog was the one fence element only CONFIGURED, never asserted
+  # (bridge-v3 close-out). Both files, because a profile can override the base.
+  local f sk
+  for f in "$base" "$prof"; do
+    sk=$(_py skillskeys "$f") || die "could not read the [skills] keys in $f" $EX_ENV
+    [ "$sk" = ok ] \
+      || die "$f $sk — Codex would be handed the host skill catalog, whose paths this fence denies" $EX_ENV
+  done
 }
 
 # Remove trees a killed run could not clean up. Reported, never silent: a sweep
