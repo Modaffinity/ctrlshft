@@ -69,10 +69,11 @@ as `blocked`. Full procedure: [BUILD_SESSION.md](references/BUILD_SESSION.md).
 
 ## Resume, in brief
 
-Six steps, for a fresh session with no memory: read `STATE.md`; read the frontmatter; verify the
-claim against disk, never trust it; read `BRIEF.md`; read the last completed stage's artifact; run
-the stage named in *Resume here*, reconciled against the disk check. Status is derived, never
-declared. Full procedure: [BUILD_SESSION.md](references/BUILD_SESSION.md).
+Seven steps, for a fresh session with no memory: read `plans/INDEX.md` to get the slug; read
+`STATE.md`; read the frontmatter; verify the claim against disk, never trust it; read `BRIEF.md`;
+read the last completed stage's artifact; run the stage named in *Resume here*, reconciled against
+the disk check. Status is derived, never declared. Full procedure:
+[BUILD_SESSION.md](references/BUILD_SESSION.md).
 
 ## The package
 

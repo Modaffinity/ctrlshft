@@ -22,7 +22,7 @@ architectural impact.
 
 ## What item 8 fixes and what it records
 
-The docs stage fixes what this stage explicitly names: `README.md` must link `ARCHITECTURE.md`,
+The docs stage fixes what the brief explicitly names: `README.md` must link `ARCHITECTURE.md`,
 `CONTEXT.md`, `docs/adr/`, `plans/INDEX.md` and `research/INDEX.md`. It also fixes every finding
 naming a file this workstream created or edited. **Everything else the script reports is recorded,
 not fixed** — bulk-adding another workstream's untracked research on this branch would bundle work
@@ -96,8 +96,9 @@ Exit code: <n>.
 
 ## What docs-graph-check.py checks
 
-Python 3, standard library only, no external tool. Stdlib-only means no `lychee`, no MkDocs strict
-mode — both need machinery this scan already made unnecessary.
+Python 3, standard library only, no external tool. `lychee` is not installed on this machine and
+MkDocs strict mode needs a site config plus a nav file duplicating the index — both were considered
+and rejected; the documentation scan already favoured the script.
 
 **Flags.** `--root DIR` (default: the git top level), `--start FILE` (default `README.md`),
 `--profile pod|package` (default `pod`).
@@ -122,10 +123,13 @@ run.
 
 `SIZE_EXEMPT_GLOB` holds **`plans/*/*.md`** and **`plans/archive/*/*.md`**, matched by relative
 path one glob segment at a time so `*` never crosses a separator — a workstream's own `BRIEF`,
-`SPEC`, `PLAN`, `STATE` and `DOCS`. A workstream artifact is a third document kind, the way
-`ARCHITECTURE.md` is a second one: its length is a function of the work it records, not of how
-readable it is as doctrine, and a correctly-written plan is long by construction. A cap a correct
-artifact cannot meet is an unreachable gate, not a real budget.
+`SPEC`, `PLAN`, `STATE` and `DOCS`. The spec measured this workstream's own `SPEC.md` at 849 lines
+and its `PLAN.md` at 2,692 against a 500-line leaf budget, so acceptance criterion 5's intersection
+could never be empty without this exemption. A workstream artifact is a **third document kind**, the
+way `ARCHITECTURE.md` is a second one in ADR 0002: its length is a function of the work it records,
+not of how readable it is as doctrine, and a correctly-written plan is long by construction. A cap a
+correctly-written artifact cannot meet is the unreachable gate the spec already refused once at B8's
+Land step — this is the same ruling applied twice.
 
 Five checks in one pass; exit 0 clean, exit 1 with one finding per line as `<kind>: <path>:
 <detail>`:

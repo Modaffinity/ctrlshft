@@ -142,18 +142,19 @@ accident, however clean the tree looks at the moment of committing.
 
 What a fresh build session with no memory does, in this order:
 
-1. Read `plans/<slug>/STATE.md`. **Absent** → no build session has run; read `BRIEF.md`, start at B1.
-2. Read the frontmatter. `stage` and `verdict` are the *claimed* position.
-3. **Verify the claim against disk; never trust it.** "The last completed stage" means **disk-done,
+1. Read `plans/INDEX.md`; its in-flight row names the active workstream, which is `<slug>`.
+2. Read `plans/<slug>/STATE.md`. **Absent** → no build session has run; read `BRIEF.md`, start at B1.
+3. Read the frontmatter. `stage` and `verdict` are the *claimed* position.
+4. **Verify the claim against disk; never trust it.** "The last completed stage" means **disk-done,
    not table-done**: for every stage the table marks `done`, run that stage's disk test from
    [Output kinds](INTERFACES.md#output-kinds) — a `file` stage's predicate is disk, checked with
    `git ls-files`: the file must be present **and** tracked; a `commits` stage needs its SHA range to
    resolve on the branch; a `findings` stage needs its ledger block present. The first stage whose
    test fails is the stage to run, whatever the table says — status is derived, never declared.
-4. Read `BRIEF.md`. It is the controlling document for every remaining stage.
-5. Read the last completed stage's artifact, because it is the next stage's input. Nothing else.
-6. Run the stage named in *Resume here*, after reconciling it with step 3 — where the two disagree,
-   step 3 wins.
+5. Read `BRIEF.md`. It is the controlling document for every remaining stage.
+6. Read the last completed stage's artifact, because it is the next stage's input. Nothing else.
+7. Run the stage named in *Resume here*, after reconciling it with step 4 — where the two disagree,
+   step 4 wins.
 
 It does not read the transcript, does not re-run a completed stage for context, and does not consult
 the SDD ledger to decide its position. **The plan's own checkboxes are a competing signal and are not
@@ -163,7 +164,7 @@ committed but its box is not ticked. `git log` against the task list is the tie-
 **Three edge cases, all named because all will happen.**
 
 - **A leftover artifact from a failed stage.** The between-stages loop deletes it, but a session that
-  died mid-loop did not. So step 3 does not stop at "the file exists": an artifact present but
+  died mid-loop did not. So step 4 does not stop at "the file exists": an artifact present but
   **untracked** counts as absent, and the resuming session deletes it before re-running the stage.
 - **Interrupted mid-Implement.** SDD's position lives in `.superpowers/sdd/<slug>-PLAN/progress.md`,
   which is git-ignored scratch and may be gone. Recovery is `git log` on the workstream branch against

@@ -151,6 +151,9 @@ You are reviewing <the artifact's name> for the workstream `<slug>`.
 Claude decides, Codex advises; do not be timid and do not be reckless.
 
 The packet is every file in this directory. `MANIFEST.md` says where each file came from.
+Filenames in this packet are flattened (`pod--plans--slug--BRIEF.md`); a link inside one that
+resolves against its original source tree rather than this packet directory is not a defect —
+`MANIFEST.md`'s **Source path** column gives each file's original location.
 `BRIEF.md` is the controlling document: where the artifact and the brief disagree, the brief
 wins and the artifact is wrong.
 
