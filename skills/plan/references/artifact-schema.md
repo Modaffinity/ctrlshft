@@ -62,7 +62,8 @@ types; unknown types cause the generator to exit with a fatal error.
 Data: `title` (string), `summary` (string).
 
 **`branch-sketched`** — logged once per branch (Step 2).
-Data: `slug`, `name`, `summary`. The slug is the `.plan.yaml` key and directory name.
+Data: `slug`, `name`, `summary`. **The `slug` must be unique across all branches in the log**
+(enforced by C4 check). The slug is the `.plan.yaml` key and directory name.
 
 **`branch-detailed`** — logged when a branch is decomposed into goals (Step 3c).
 Data: `slug`. Transitions status from `sketched` to `detailed`.
@@ -70,7 +71,8 @@ Data: `slug`. Transitions status from `sketched` to `detailed`.
 ### Wave events
 
 **`wave-opened`** — logged when a wave begins (Step 3b).
-Data: `wave_id`, `branch`. Sets `current_wave`. Only one wave open at a time.
+Data: `wave_id`, `branch`. **The `wave_id` must be unique across all waves in the log**
+(enforced by C4 check). Sets `current_wave`. Only one wave open at a time.
 
 **`wave-closed`** — logged when a wave completes (Step 3e).
 Data: `wave_id`. Clears `current_wave` if it matches.
@@ -78,8 +80,9 @@ Data: `wave_id`. Clears `current_wave` if it matches.
 ### Goal events
 
 **`goal-emitted`** — logged when a goal is produced with all five fields (Step 5).
-Data: `branch`, `goal_id`, `title`, `wave`. The goal's full content lives in the branch
-directory, not in the log event.
+Data: `branch`, `goal_id`, `title`, `wave`. **The `goal_id` must be unique across all goals
+in the log** (enforced by C4 check). The goal's full content lives in the branch directory,
+not in the log event.
 
 **`goal-skipped`** — logged when a goal will not proceed (Step 3e). Distinct from blocked:
 blocked = *cannot proceed yet*; skipped = *will not proceed, downstream stops waiting*.
@@ -88,8 +91,9 @@ Data: `branch`, `goal_id`, `reason`. Maps to the bus's existing `cancelled` afte
 ### Decision and assumption events
 
 **`decision-made`** — logged when a decision is recorded.
-Data: `id`, `title`, `why`, `implications`. The `implications` field states consequences at
-decision time — what makes a register usable months later.
+Data: `id`, `title`, `why`, `implications`. **The `id` must be unique across all decisions in
+the log** (enforced by C4 check). The `implications` field states consequences at decision time
+— what makes a register usable months later.
 
 Example:
 ```json
@@ -98,8 +102,9 @@ Example:
 
 **`assumption-recorded`** — logged when an assumption is identified.
 Data: `id`, `text`, `provenance`, `confidence` (`low`/`medium`/`high`), `dependents` (list
-of branch slugs or goal IDs). This structure drives wave ordering: highest dependents x
-lowest confidence goes first.
+of branch slugs or goal IDs). **The `id` must be unique across all assumptions in the log**
+(enforced by C4 check). This structure drives wave ordering: highest dependents x lowest
+confidence goes first.
 
 **`assumption-falsified`** — logged when an assumption proves wrong.
 Data: `id`, `reason`. The generator marks the assumption as falsified with date and reason.
@@ -107,7 +112,8 @@ Data: `id`, `reason`. The generator marks the assumption as falsified with date 
 ### Question events
 
 **`question-opened`** — logged when a question cannot be answered immediately.
-Data: `id`, `text`, `resolves_when` (what evidence or decision would close it).
+Data: `id`, `text`, `resolves_when` (what evidence or decision would close it). **The `id`
+must be unique across all questions in the log** (enforced by C4 check).
 
 **`question-resolved`** — logged when a question is answered.
 Data: `id`, `resolution`.
@@ -125,7 +131,8 @@ Data: `goal_id`, `result` (`pass`/`fail`), `detail`. The verdict is an artifact 
 then checks for — a judge that sets status directly is declared status wearing a lab coat.
 
 **`run-record-written`** — logged when a run record captures actuals for a completed goal.
-Data: `id`, `goal_id`, `detail`. Captures what actually happened — which assumptions were
+Data: `id`, `goal_id`, `detail`. **The `id` must be unique across all run records in the log**
+(enforced by C4 check). Captures what actually happened — which assumptions were
 falsified, whether the goal completed without prescribed steps. After ten to twenty plans
 these records provide data to revise the sizing numbers in Step 4.
 
@@ -155,7 +162,9 @@ the same choice — this event is the plan's own copy, not a replacement for it.
 | `questions.md` | Log: ID, date, text, resolves_when, status |
 
 The regeneration-is-a-no-op guard (`check-plan-surface.sh`) verifies the generator produces
-no diff against committed files.
+no diff against committed files, and its `C4` check fails the surface when any id above repeats
+— naming the id and both line numbers. A duplicate that reaches a rendered surface is marked
+`⚠️DUPLICATE` rather than silently collapsed.
 
 ---
 
