@@ -3,7 +3,9 @@
 ## The eight items
 
 Eight items. Each is **changed** or **confirmed unchanged with a reason** — never silently skipped —
-and the result is committed as `plans/<slug>/DOCS.md`:
+and the result is committed as `plans/<slug>/DOCS.md`. This stage's output kind is `files` — see
+[Output kinds](INTERFACES.md#output-kinds) for what the orchestrator verifies against disk before
+advancing.
 
 | # | Item | What "changed" means |
 |---|---|---|
@@ -33,6 +35,11 @@ The baseline measured on 2026-09-12, before any fix: **175 findings — 67 `miss
 41 `untracked`, 9 `oversize`.** That count predates the `EXCLUDED` fix, the `serves:` check, and
 both size exemptions (`SIZE_EXEMPT` and `SIZE_EXEMPT_GLOB`) below — none of them existed when it was
 taken, so a current run measures a different number, `no-serves` and `exempt` counts included.
+
+**The measurement is two clean worktrees, base against tip — never the live working tree.** The
+live tree carries thirteen untracked `research/` directories contributing ~32 findings that belong
+to no branch, and round 2 measured the working tree at **147** where the spec had said 121/122 —
+`untracked:` 33→0 and `no-serves:` 42→9 under the comparison, the strongest evidence for the method.
 
 The merged estate graph that would let a model cross pods is a control-plane open loop. The docs
 stage records the pointer — `~/cortexos-bakeoff-lab/MAP.md`, in-container
@@ -71,15 +78,17 @@ Every row is **Changed** or **Confirmed unchanged** with a reason. Never blank, 
 
 ## The pod's documentation graph
 
-**Baseline, measured <date> before any fix:** <total> findings — <n> `missing`, <n> `orphan`,
-<n> `untracked`, <n> `oversize`, <n> `no-serves`, <n> `too-deep`.
-**After this workstream's own fixes:** <total> findings — <same six counts>.
-**Delta:** <what moved, and why>.
+**Base, clean worktree at `<base>`:** <total> findings — <n> `missing`, <n> `orphan`,
+<n> `untracked`, <n> `oversize`, <n> `no-serves`, <n> `too-deep`. **Non-zero, or the walk never ran.**
+**Tip, clean worktree at HEAD:** <total> findings — <same six counts>.
+**Delta:** <tip − base>, and the named diff of the two finding lists — every added and every
+removed line. Reported, never gated (ADR 0005, ruling R80).
+**This workstream's own diff, the gate:** the tip's finding list ∩
+`git diff --name-only <base>...HEAD` = <the intersection, or "empty">.
+**Plan length, reported not gated:** <n> lines of plan for <n> lines of deliverable, against
+release 1's 4,161 for ~1,500 (`C4`, spec § 7.1).
 **Size-exempt files:** <path>, <n> lines, <which exemption> — one line per `exempt:` line the
 run printed, `SIZE_EXEMPT` and `SIZE_EXEMPT_GLOB` alike.
-
-**This workstream's own diff, the gate:** `docs-graph-check.py`'s findings intersected with
-`git diff --name-only <base>...HEAD` = <the intersection, or "empty">.
 
 **Recorded, not fixed** — pre-existing debt this branch did not introduce, with a recommendation:
 <list>.
@@ -129,7 +138,8 @@ could never be empty without this exemption. A workstream artifact is a **third 
 way `ARCHITECTURE.md` is a second one in ADR 0002: its length is a function of the work it records,
 not of how readable it is as doctrine, and a correctly-written plan is long by construction. A cap a
 correctly-written artifact cannot meet is the unreachable gate the spec already refused once at B8's
-Land step — this is the same ruling applied twice.
+Land step — this is the same ruling applied twice, and the general rule behind both is
+[CHECKS.md](CHECKS.md)'s rule 2.
 
 Five checks in one pass; exit 0 clean, exit 1 with one finding per line as `<kind>: <path>:
 <detail>`:

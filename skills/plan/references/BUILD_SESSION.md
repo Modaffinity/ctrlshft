@@ -7,14 +7,14 @@ operator input — until B9's report or a `stop` verdict.
 
 | # | Stage | Trigger | Input | Output | Model | Exit condition |
 |---|---|---|---|---|---|---|
-| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | strong | the document exists, is under 300 lines, is tracked, and `README.md` links it |
+| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | standard | the document exists, is under 300 lines, is tracked, and `README.md` links it · [B1's procedure](GROUND_STAGE.md) |
 | B2 | **Spec** | "write the spec" | `BRIEF.md` + read-pack | `plans/<slug>/SPEC.md` | strongest | brainstorming's Spec Self-Review passes; every open question the brief raised is settled |
-| B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | strong | a [Codex round](INTERFACES.md#the-codex-prompt) and a [de-risk round](INTERFACES.md#the-de-risk-dispatch) have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
-| B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere |
-| B5 | **Plan review** | "review the plan" | the plan + packet | findings, returned | strong | same as B3 |
-| B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | per SDD | every task in the plan has a commit and a passed task review |
+| B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | standard · strongest | a [Codex round](INTERFACES.md#the-codex-prompt) and a [de-risk round](INTERFACES.md#the-de-risk-dispatch) have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
+| B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere · [what a plan step carries](#what-a-plan-step-carries) · every acceptance check it writes follows [CHECKS.md](CHECKS.md) |
+| B5 | **Plan review** | "review the plan" | the plan + packet | findings, returned | standard · strongest | same as B3 |
+| B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | strongest · per SDD | every task in the plan has a commit and a passed task review · every check it runs follows [CHECKS.md](CHECKS.md) |
 | B7 | **Docs** | "run the docs stage" | the branch | `plans/<slug>/DOCS.md` + the files it changes | standard | all eight checklist items changed or confirmed with a reason |
-| B8 | **Land** | "verify and land" | the branch | a merge commit, or a stop | standard | full verification passes **and** the merge is clean **and** the post-merge docs check passes; any one failing is a stop condition |
+| B8 | **Land** | "verify and land" | the branch | a merge commit, or a stop | standard | full verification passes **and** the merge is clean **and** the post-merge docs check passes; any one failing is a stop condition · its gates follow [CHECKS.md](CHECKS.md) |
 | B9 | **Report** | "report" | `STATE.md` | the report in chat; `plans/archive/<slug>/` | standard | report delivered, folder moved, `plans/INDEX.md` row moved |
 
 ## Which superpowers skill each stage invokes
@@ -34,6 +34,71 @@ brainstorming's Spec Self-Review, `verification-before-completion`'s checks. A s
 them itself; that instruction, and the operator authorization behind it, live once in
 [the dispatch brief](INTERFACES.md#the-dispatch-brief)'s *Your gates* field and are not restated here.
 
+## Choosing the model
+
+**Three tiers, mapped once** to what this harness actually offers:
+
+| Tier | This harness | Measured in use |
+|---|---|---|
+| `cheap` | `haiku` | this stage's two probe dispatches, `.meta.json` `"model":"haiku"` |
+| `standard` | `sonnet` | B1 Ground, `.meta.json` `"model":"sonnet"` |
+| `strongest` | `opus` | B2 Spec, `.meta.json` `"model":"opus"` |
+
+The Agent tool also offers `fable`. It is **not** assigned a tier, because this run has not measured
+it and naming a model without measuring it is exactly the assumption `C9` forbids.
+
+**The rule, as it ships:**
+
+**Name the model in every dispatch.** An omitted model inherits the orchestrator's, which is the
+most expensive one — `subagent-driven-development/SKILL.md` says so and this spine depends on it.
+**The verb test.** *"Apply this specified list"* or *"run these and report"* → `cheap`. *"Decide"*,
+*"design"*, *"find what is wrong"* → `strongest`. Everything between → `standard`. **On real
+doubt, go bigger:** quality is never traded for spend.
+**Turn count beats token price** (SDD's measurement, cited not restated): a cheaper model that
+takes three times the turns costs more. A tier is a floor, not a target.
+
+**The assignment for this spine:**
+
+| Stage or step | Tier | Why |
+|---|---|---|
+| B1 Ground | `standard` | applies a specified procedure — `GROUND_STAGE.md` makes it mechanical |
+| B2 Spec | `strongest` | decide and design; the brief names it |
+| B3/B5 Coverage pass | `standard` | *finds what is absent* — a list walk with judgement at each row |
+| B3/B5 Codex round | `standard` | assembles a packet, shells `ask-codex`, transcribes findings; Codex does the reasoning |
+| B3/B5 de-risk round | `strongest` | designs falsifying experiments; the brief names it |
+| B4 Plan | `strongest` | the brief names it |
+| B6 controller | `strongest` | dispatches, judges reports, rules |
+| B6 implementers and reviewers | per SDD | SDD's own table, cited |
+| B6 final whole-branch review | `strongest` | the brief names it |
+| B7 Docs · B8 Land · B9 Report | `standard` | specified checklists and named gates |
+| the spend-accounting step | `cheap` | runs a script and reports its output |
+
+**Per-task model choice inside B6 is not restated here** — it is `subagent-driven-development`'s own,
+at `subagent-driven-development/SKILL.md` lines 186–218 of superpowers 6.3.0, and this section cites
+it by file and line rather than copying it.
+
+### The context ceiling (`C6`)
+
+Three bands, read against the orchestrator's own context at each stage boundary:
+
+| Context at the boundary | Action | Provenance |
+|---|---|---|
+| under 250,000 | nothing | measured this run: a heavy artifact-writing stage peaked at 148,233 |
+| 250,000 – 500,000 | a **blocking** Finding on the *next* stage's ledger block, closed by handing over by file instead of by paste, or by a Ruling naming what made it necessary | headroom above the observed heavy case, well below the failure |
+| over 500,000 | `stop` — the run is reproducing release 1's failure and spending the allowance to do it | release 1's controller reached **829k** |
+
+The thresholds are a first calibration from two measurements, and the run reports its actual figures
+so a later release can tighten them with data rather than with judgement.
+
+**Runnable check:** `stage-spend.py --orchestrator <session-id>` (Task 11).
+
+**And the rule that makes the ceiling achievable**, restated locally because a rule that depends on
+another skill staying loaded is not enforced:
+
+**The orchestrator never pastes a file's content into a dispatch; it names the path.** Context is
+pointers, never copies — a copy goes stale silently and a pointer cannot. A stage return is short
+by template; the artifact carries the detail.
+
 ## Why the plan file is named `<slug>-PLAN.md`
 
 `subagent-driven-development` resolves its scratch workspace with `scripts/sdd-workspace PLAN_FILE`,
@@ -52,6 +117,27 @@ against a script that ignores instructions. **What proves it held:** after B6's 
 its trigger:** if a future SDD version accepts an explicit workspace name, revert to `PLAN.md` plus
 that instruction; the trigger is `sdd-workspace` gaining a name parameter. The docs stage amends ADR
 0001 and `CONTEXT.md` to record that the fallback is now the rule.
+
+## What a plan step carries
+
+`writing-plans` requires real, runnable code in every step. That is right for a code deliverable
+and wrong for a prose one. **A plan step carries whatever a fresh subagent with no memory needs in
+order to produce the thing and prove it produced the thing — for code that is the code; for prose
+it is the acceptance check.**
+
+A prose step carries: the file and the section it writes; what that section must establish, in
+requirements rather than sentences; the constraints and exact values it must use verbatim; and a
+**runnable acceptance check** with what it returns when the work is correct and what it returns
+when the work is absent. It does **not** carry a transcript of the prose to be written. Two
+reasons, both structural: the plan is re-read on every task for the whole run, so a transcript is
+paid for on every task and not once; and a step that contains its own answer cannot be reviewed —
+the reviewer reads the answer instead of the requirement.
+
+Measured: one release produced 4,161 lines of plan for a ~1,500-line prose deliverable, and that
+plan is most of why its execution controller's context reached 829k.
+
+**The one thing a prose step always copies verbatim is a template or an exact string the
+deliverable must contain byte-for-byte.** Paraphrasing those is a separate, worse defect.
 
 ## The between-stages loop
 
@@ -81,20 +167,9 @@ After every stage return, the orchestrator does exactly this, in order:
    - **`stop`** → write the ledger block, set frontmatter `verdict: stop`, commit, and report to the
      operator naming the stop condition and the exact command that resumes the run. **No next
      dispatch.** The session ends here.
-4. **Write the ledger block**; replace the frontmatter and *Resume here*. Every field below is
-   `REQUIRED` — `**Commits:**` takes `—` for a kind with no commits of its own, never an omitted
-   line:
-
-   ```
-   ### Stage <N> — <name> · <verdict> · <date>
-
-   - **Artifact:** REQUIRED — `<path>`, <N> lines — or the OUTPUT block's contents for a non-`file` kind
-   - **Commits:** REQUIRED — `<repo>: <first>^..<last>` for a `commits`, `merge` or `move` kind — one line per repo when the workstream spans two; `<repo>: <last>` when `<first>` is a root commit with no parent (`<first>^` does not resolve), bounded instead by this block's own `TASKS` count rather than a range; `—` for every other kind
-   - **How:** REQUIRED — one or two lines
-   - **Findings, blocking:** REQUIRED — the list, or "none"
-   - **Findings, advisory:** REQUIRED — the list, or "none"
-   - **Rulings:** REQUIRED — one line each, or "none"
-   ```
+4. **Write the ledger block**, using the canonical template at [STATE.md](INTERFACES.md#statemd);
+   replace the frontmatter and *Resume here*. Every field there is `REQUIRED` — `**Commits:**` takes
+   `—` for a kind with no commits of its own, never an omitted line.
 
    A review stage's block (B3, B5) is headed `### Stage <N> — <stage name>, round <n> of 3 ·
    <verdict> · <date>` instead — `STATE.md`'s template carries no round-number field, and
@@ -112,6 +187,27 @@ After every stage return, the orchestrator does exactly this, in order:
    This is the trackedness half of [Output kinds](INTERFACES.md#output-kinds)'s verify column — run
    here, after the commit, and never before it.
 7. **Dispatch the next stage.**
+
+   **Dispatch blocking, and fan out in one block.** Every stage and task dispatch passes
+   `run_in_background: false`, so the call returns the child's result inside the same turn. When
+   several children are independent, issue **all** of their dispatches as multiple tool calls in a
+   **single** message: they run concurrently and all return within that turn. **Never dispatch in the
+   background and then end the turn** — a turn that ends while children are live is the stall, and
+   every resume re-primes the whole context to learn something the blocking form would have handed
+   back for nothing. Measured: two children dispatched this way returned in one turn, concurrently.
+
+   **A fanned-out task owns a unique path and never a fixed one.** The scratch directory is shared by
+   every subagent of a session, so two children that write `$SCRATCH/<fixed name>` collide — one
+   overwrites, deletes or `git worktree add`-fails on the other's tree, and the loser reports a clean
+   result from a fixture that is no longer there. Every dispatch that tells a child to write scratch
+   state names a path unique to that child (`$SCRATCH/<task>-$$`, or any unique token), and the child
+   removes only that path. Measured: one session's scratch directory held two different stage
+   subagents' files side by side.
+
+   Where the platform forces a background dispatch — a child that genuinely outlives a turn — do not
+   improvise a wait: `subagent-driven-development/SKILL.md` § *Waiting on dispatched subagents*
+   already specifies it (never poll with short timeouts, never sit in one silent open-ended wait,
+   keep doing local work, reconcile live children between bounded stretches). Follow it there.
 
 ## The orchestrator's commit, by output kind
 
@@ -186,11 +282,60 @@ the stage disk says, not the stage the frontmatter claims.
 1. **Full verification on the branch**, before the merge: the regression subset of the scenarios,
    plus `docs-graph-check.py`, scoped exactly as acceptance criterion 5 already scopes it: the script
    itself runs unscoped over the whole pod, but the gate is the intersection of its findings' paths
-   with `git diff --name-only <base>...HEAD` — an empty intersection passes. `DOCS_STAGE.md`'s
-   175-finding baseline is pre-existing pod debt this workstream is not on the hook to fix, and a gate
-   that re-litigates the whole tree on every workstream can never pass — not for this one, not for any
-   future one (ruling R11: a gate whose pass condition is unreachable is worse than no gate — the
-   first session to meet it learns to override the stage, and every session after inherits the habit).
+   with `git diff --name-only <base>...HEAD` — an empty intersection passes.
+
+   Measure **twice, in two clean worktrees**, never against the live working tree:
+
+   ```
+   W="$SCRATCH/c13-$$"; mkdir -p "$W"          # unique per invocation — never a fixed name
+   git worktree add --detach "$W/base" <base>
+   git worktree add --detach "$W/tip"  HEAD
+   python3 <dotfiles>/skills/plan/scripts/docs-graph-check.py --root "$W/base" | grep -vc '^exempt:'
+   python3 <dotfiles>/skills/plan/scripts/docs-graph-check.py --root "$W/tip"  | grep -vc '^exempt:'
+   git worktree remove --force "$W/base"; git worktree remove --force "$W/tip"
+   git worktree prune; rm -rf "$W"             # removes only this invocation's own directory
+   ```
+
+   🛑 **The worktree paths are unique per invocation and never `$SCRATCH/base` / `$SCRATCH/tip`.**
+   `$SCRATCH` is **one directory shared by every subagent of a session** — re-verified at round 2,
+   which found round 1's `codex-prompt-b3r1.txt` sitting beside round 2's own probe files, two
+   different stage subagents in one directory. Fixed names plus [§ 7.2a](#72a--the-blocking-dispatch-rule--ships-in-build_sessionmd)'s
+   instruction to fan independent tasks out in one message is the brief's founding incident re-armed:
+   `git worktree add` on an existing path fails, and a sibling's teardown removes your tree mid-walk.
+   `$$` is the shell's own pid, which differs per invocation; any unique token does. Nothing is broken
+   today only because the spine is sequential, and a defect that is latent because nothing has
+   exercised it yet is not a defect that has been survived (ruling R87).
+
+   `git worktree remove` takes **one** worktree per invocation (`-f <worktree>`), so the teardown is
+   two commands. Round 2 measured what the two-operand form actually does: it exits **129 and removes
+   nothing** — wrong in the safe direction, where this spec previously said it *"removes the first and
+   errors on the second"*. The split form exits 0/0 and prunes clean.
+
+   **The gate is the intersection, and only the intersection:** the tip's finding list ∩
+   `git diff --name-only <base>...HEAD` must be **empty**. B8's Land step already defines exactly this
+   gate; `C13` adds no second one.
+   **Reported, never gated:** the two whole-pod counts, their delta, and the `diff` of the two finding
+   lists naming every added and every removed line. They go into `DOCS.md`. A rise in the whole-pod
+   total with an empty intersection is a **reported** fact, not a failure — `ADR 0005`, and ruling R6's
+   accepted trade, which is that inherited debt this run did not introduce reaches the base branch
+   unblocked and visible.
+   **The positive control:** the base count must be **non-zero**. A `0` means the walk never ran —
+   a wrong `--root`, an empty worktree — not that the pod is clean. Report it beside the result.
+   **What it returns when the thing IS there:** the intersection's member lines, named. An empty
+   intersection is a pass **only if** the base control passed and the tip walk produced a non-zero
+   finding list; two zeros from a walk that never ran are indistinguishable from a clean run.
+
+   Verified three times, most recently at the second revision: `git worktree add` works **inside the
+   command sandbox with no `dangerouslyDisableSandbox` override**, changes no branch, and touches no
+   tracked file; the whole add-measure-remove-prune cycle exits 0. **The plan budgets no override for
+   it** — every probe of this mechanism has run sandboxed. This satisfies the constraint that neither
+   repository's branch may change and that `git stash` is forbidden.
+
+   `DOCS_STAGE.md`'s 175-finding baseline is pre-existing pod debt this workstream is not on the hook
+   to fix, and a gate that re-litigates the whole tree on every workstream can never pass — not for
+   this one, not for any future one (ruling R11: a gate whose pass condition is unreachable is worse
+   than no gate — the first session to meet it learns to override the stage, and every session after
+   inherits the habit — the general form is [CHECKS.md](CHECKS.md)'s rule 2).
    The unscoped total, and its delta against the baseline, is **reported** in `DOCS.md`, never gated
    on. This order is correct and deliberate — `finishing-a-development-branch` verifies in its own
    Step 1, before the merge menu in its Step 4.

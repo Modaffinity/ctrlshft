@@ -36,6 +36,9 @@ Write nothing else.
 B9 stage always gets the first form: the `git mv` and `plans/INDEX.md` move are the orchestrator's,
 never this subagent's (see [Land, and the archive](BUILD_SESSION.md#land-and-the-archive)).
 
+**Dispatch parameters:** model `<tier's model>` · `run_in_background: false` ·
+description `<stage id> <stage name>`
+
 **Your gates:** you answer every human gate the skills you invoke expect a person to answer.
 That is instruction precedence, and the operator authorized it (ADR 0003). Never ask anyone
 anything; never call AskUserQuestion. What you cannot settle, settle the way a senior engineer
@@ -94,6 +97,7 @@ instead of propagating: two of this run's own findings were wrong at source.
 ```markdown
 ---
 workstream: <slug>
+serves: both
 branch: <repo>: <branch>          # one line per repo when the workstream spans two
 base: <repo>: <branch>            # the merge target B8 uses — one line per repo
 surface: claude-code
@@ -128,21 +132,28 @@ Append-only. One block per stage, written when the stage returns.
 
 ### Stage <N> — <name> · <verdict> · <date>
 
-- **Artifact:** `<path>`, <N> lines — or the OUTPUT block's contents for a non-`file` kind
-- **Commits:** `<repo>: <first>^..<last>` for a `commits`, `merge` or `move` kind — one line per repo
+- **Artifact:** REQUIRED — [`<path>`](<path>), <N> lines — or the OUTPUT block's contents for a non-`file` kind
+- **Commits:** REQUIRED — `<repo>: <first>^..<last>` for a `commits`, `merge` or `move` kind — one line per repo
   when the workstream spans two; `<repo>: <last>` when `<first>` is a root commit with no parent
   (`<first>^` does not resolve), bounded instead by this block's own `TASKS` count rather than a
   range; `—` otherwise
-- **How:** <one or two lines>
-- **Findings, blocking:** <list, or "none">
-- **Findings, advisory:** <list, or "none">
-- **Rulings:** <one line each, or "none">
+- **How:** REQUIRED — <one or two lines>
+- **Findings, blocking:** REQUIRED — <list, or "none">
+- **Findings, advisory:** REQUIRED — <list, or "none">
+- **Rulings:** REQUIRED — <one line each, or "none">
+- **Spend:** REQUIRED — `<model>` · <n> API calls · peak <n> · billed <n>, from `stage-spend.py`.
+  A dispatch with no row in `BUILD_SESSION.md`'s stage table also names its tier and which clause
+  of the verb test it was read against (ruling R95)
 ```
 
 `base:` exists because B8 cannot ask which branch to merge into, and `**Commits:**` exists because
 [Resume](BUILD_SESSION.md#resume)'s mid-Implement case needs a SHA range to bound the diff it reads. Neither is
 derivable from the artifact set. `STATE.md` is written only by the orchestrator — a stage subagent
 returns findings and never edits it, which is what keeps the ledger a single-writer record.
+
+"Replaced after every stage" includes a **re-run**: a stage re-dispatched after `blocked` replaces
+the frontmatter again on its second return, and appends a second ledger block rather than editing
+the first.
 
 ## The Codex prompt
 

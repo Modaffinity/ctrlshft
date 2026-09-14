@@ -47,12 +47,12 @@ The spine runs inside plan mode or outside it. Entering plan mode never invokes 
 | P4 | **Grill** | "grill me on this" | P2, P3 | `CONTEXT.md` terms, `docs/adr/NNNN-*.md` | — | the operator stops the interview; every question answered or recorded as a Delegated decision |
 | P5 | **Brief** | "write the brief" | P1–P4 | `plans/<slug>/BRIEF.md` | — | committed, tracked, and its clickable link given to the operator |
 | P6 | **Handoff** | "hand off" | P5 | one paste-able prompt in chat | — | the prompt names the pod path, the branch, `BRIEF.md` and the read-pack |
-| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | strong | the document exists, is under 300 lines, is tracked, and `README.md` links it |
+| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | standard | the document exists, is under 300 lines, is tracked, and `README.md` links it |
 | B2 | **Spec** | "write the spec" | `BRIEF.md` + read-pack | `plans/<slug>/SPEC.md` | strongest | brainstorming's Spec Self-Review passes; every open question the brief raised is settled |
-| B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | strong | a Codex round and a de-risk round have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
+| B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | standard · strongest | a Codex round and a de-risk round have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
 | B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere |
-| B5 | **Plan review** | "review the plan" | the plan + packet | findings, returned | strong | same as B3 |
-| B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | per SDD | every task in the plan has a commit and a passed task review |
+| B5 | **Plan review** | "review the plan" | the plan + packet | findings, returned | standard · strongest | same as B3 |
+| B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | strongest · per SDD | every task in the plan has a commit and a passed task review |
 | B7 | **Docs** | "run the docs stage" | the branch | `plans/<slug>/DOCS.md` + the files it changes | standard | all eight checklist items changed or confirmed with a reason |
 | B8 | **Land** | "verify and land" | the branch | a merge commit, or a stop | standard | full verification passes **and** the merge is clean **and** the post-merge docs check passes; any one failing is a stop condition |
 | B9 | **Report** | "report" | `STATE.md` | the report in chat; `plans/archive/<slug>/` | standard | report delivered, folder moved, `plans/INDEX.md` row moved |
@@ -85,10 +85,12 @@ because a live v1 plan tree still depends on them; `/carve` enters them at
 |---|---|
 | `SKILL.md` (this file) | the eight sections above |
 | [PLANNING_SESSION.md](references/PLANNING_SESSION.md) | The six stages · Rules the planning session carries · The handoff |
+| [GROUND_STAGE.md](references/GROUND_STAGE.md) | B1's procedure — the decision with no third branch · the template · the freshness test · the `blocked` path |
 | [BUILD_SESSION.md](references/BUILD_SESSION.md) | The nine stages · Which superpowers skill each stage invokes · Why the plan file is named `<slug>-PLAN.md` · The between-stages loop · The orchestrator's commit, by output kind · Resume · Land, and the archive |
 | [INTERFACES.md](references/INTERFACES.md) | Output kinds · The dispatch brief · The stage return · The revision dispatch · STATE.md · The Codex prompt · The de-risk dispatch |
 | [REVIEW_ROUNDS.md](references/REVIEW_ROUNDS.md) | What a round is · Classifying a finding · The cap, and what happens at it · The advisor packet · Overflow · Cross-repo packets |
 | [DOCS_STAGE.md](references/DOCS_STAGE.md) | The eight items · What item 8 fixes and what it records · The DOCS.md template · What docs-graph-check.py checks |
+| [CHECKS.md](references/CHECKS.md) | The two rules behind every acceptance check this package writes: a check states what it returns when the thing IS there; a gate a correct artifact cannot pass is rescoped and reported, never waived |
 | [V1_LEGACY.md](references/V1_LEGACY.md) | v1's seven-step procedure; it links the nine v1 references |
 
 | Entry point | Reaches |

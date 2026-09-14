@@ -33,6 +33,23 @@ Red flags — stop and re-read this section if you notice any of these in your o
 - no operator is reachable and closing this out today feels urgent — that pressure does not change
   what a fenced tool is fenced for.
 
+## Reading cannot detect a wrong fact about the machine
+
+**A round is a reading.** An artifact can be internally consistent, fully reviewed and still wrong
+about the environment it runs on. No number of readers finds that class — which is why one of the
+two required round kinds **runs** experiments instead of reading them, and why "reasoning about a
+probe is not running it" is written into its definition.
+
+Any statement about how the machine behaves — whether a directory is private, what a command
+prints, what a tool returns, what a folder contains — is carried as **measured** only if this run
+ran it. Otherwise it is an assumption, and it belongs in the de-risk round's list.
+
+Measured: a plan asserted that each task had its own private scratch directory. On the machine
+there was one shared directory, and a task deleted a sibling's fixture. Three review rounds, a
+revision and a fix pass all read that sentence. It was found by running two implementers at once.
+
+This is [CHECKS.md](CHECKS.md)'s rule 1 aimed at a round rather than a check: a statement about the machine is measured only if this run ran it, or it is an assumption, not evidence.
+
 ## Classifying a finding
 
 The test is mechanical, so that two readers agree:
@@ -159,7 +176,7 @@ droppable. A tier D drop is level 2 and by design; a tier B or C drop means the 
 carries the one level of closure the brief promises, which is the failure the flag exists to name.
 The narrow form was measured unreachable in practice: on this package's own review packet, cutting a
 192-file closure down to 21 to fit the byte cap dropped 171 files — 37 of them level-1 tier C — and
-raised nothing, because tier A alone never exceeded the cap.
+raised nothing, because tier A alone never exceeded the cap — a gate that cannot fail, [CHECKS.md](CHECKS.md)'s rule 1 turned the other way.
 
 If tier A alone exceeds the byte cap, the round still runs and the manifest still records
 `cap-exceeded`: the artifact plus the brief is the minimum viable packet, and refusing to review is
@@ -179,5 +196,65 @@ This copies the packet into the pod, writes `MANIFEST.md` naming each file's sou
 and the round names that directory to `ask-codex`. A dependency that resolves outside both the pod
 and `~/dotfiles` is not copied and is recorded as `out-of-reach` in the manifest.
 
-Afterwards the copies are deleted and only `MANIFEST.md` is kept: a packet is a one-round snapshot,
-and context here is pointers, never copies.
+Afterwards, the **orchestrator** deletes the copied packet files in the same between-stages step
+that writes the round's ledger block, and commits `MANIFEST.md` with it. The copies are scratch;
+the manifest is the tracked record.
+
+## The Coverage pass
+
+**Not a round.** It runs before round 1, at the first step of B3, and again at the first step of
+B5. It does not spend one of [the cap](#the-cap-and-what-happens-at-it)'s three. It takes the shape
+[the revision dispatch](INTERFACES.md#the-revision-dispatch) already defines: its own dispatched
+subagent, `findings` kind, model `standard`, ledgered under its own heading —
+`### Stage B3 — <stage name>, Coverage pass (not a round) · <verdict> · <date>`. **What it reads:**
+`BRIEF.md` and the artifact, nothing else. **What it writes:** nothing — it reports, it does not
+repair.
+
+**The brief's Constraints are the requirement list.** *Research used* and *Decisions settled* are
+provenance, and demand nothing.
+
+**Stable keys on both sides.** The spec carries one canonical `C<n>` key table, one row per key, in
+the brief's order, naming the heading that satisfies it. **The pass reads that table as a table,
+never greps a key** — `\bC1\b` matches `C11`, and `\b` behaves differently under BSD and GNU `grep`.
+It then verifies each row's cited heading exists in the artifact — otherwise an artifact could
+satisfy the table by writing the table.
+
+**What it returns:**
+
+```
+ARTIFACT: none
+COVERAGE: <n> of <n> constraints covered
+
+| key | status | where |
+|---|---|---|
+| C1 | covered | § 4 |
+| C7 | ruled | § 8.1, Ruling R6x |
+| C9 | UNCOVERED | — |
+
+BORROWS: <n> of <n> named sources placed
+| source | what it said to take | where it landed |
+|---|---|---|
+
+VERDICT: done | blocked | stop
+
+FINDINGS:
+- [blocking] <key> is UNCOVERED — nothing in <artifact> points at it
+```
+
+Three statuses, no fourth: `covered` (a section of the artifact satisfies it — cite the section,
+never a line number, because lines move), `ruled` (a Ruling in the artifact drops it, cited), and
+`UNCOVERED` (nothing to point at). Every `UNCOVERED` row is one **blocking** Finding, closed either
+by the artifact covering it or by a Ruling dropping it on the record. **Forgetting is never a
+reason.**
+
+**Its own empty case.** `COVERAGE: 0 of 0` means the pass could not read the brief's Constraints
+section and is a `blocked` verdict, never a clean pass.
+
+**At B5, one substitution.** The plan satisfies a Constraint when at least one task's requirements
+name the spec section that Constraint's row points at — spec-kit's Pass E, *requirements with zero
+associated tasks*. The finding cap is borrowed and not taken: fourteen Constraints cannot overflow,
+and a cap on a fourteen-row walk would hide the one row that matters.
+
+**The second table, `BORROWS`.** One row per source named in `BRIEF.md` § *Research used*. A
+`not taken — <reason>` row is lawful; a **missing** row is the defect — and it is **advisory**, not
+blocking, since provenance demands nothing. What this ends is the *silent* absence.

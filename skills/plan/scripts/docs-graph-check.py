@@ -29,7 +29,8 @@ SIZE_EXEMPT = ("RUN_REPORT.md",)
 # A workstream's own BRIEF/SPEC/PLAN/STATE/DOCS is a third document kind: its length is a
 # function of the work it records, not of how readable it is as doctrine (spec ruling R15).
 # Matched by RELATIVE PATH, one glob segment at a time.
-SIZE_EXEMPT_GLOB = ("plans/*/*.md", "plans/archive/*/*.md")
+SIZE_EXEMPT_GLOB = ("plans/*/*.md", "plans/archive/*/*.md",
+                    "plans/*/notes/*.md", "plans/archive/*/notes/*.md")
 
 FM_SERVES = re.compile(r"^serves:\s*\S", re.M)
 

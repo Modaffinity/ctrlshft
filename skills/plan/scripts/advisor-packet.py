@@ -8,6 +8,7 @@ Usage: advisor-packet.py <artifact> --brief <path> --out <dir> [--root <pod root
 Stdlib only; Python 3.9 compatible. The rule set is references/REVIEW_ROUNDS.md.
 """
 import argparse
+import datetime
 import glob
 import hashlib
 import os
@@ -22,6 +23,9 @@ PACKET_EXCLUDED = (".claude", ".superpowers", "evidence", "outputs", "inputs",
                    "node_modules", "subprojects")
 DOTFILES = os.path.expanduser("~/dotfiles")
 DOTCLAUDE = os.path.expanduser("~/.claude")
+# Directory names under ~/dotfiles that never enter a packet. Resolved against DOTFILES
+# at call time, never written as an absolute home path. Add a name here, not a new rule.
+NEVER_PACKET = ("secrets",)
 
 RULE_TIER = {1: "B", 2: "B", 5: "B", 3: "C", 4: "C", 6: "C", 7: "C", 8: "C"}
 Dep = namedtuple("Dep", "src rule tier")
@@ -167,6 +171,21 @@ def dir_children(path, suffixes):
                   if n.endswith(suffixes) and os.path.isfile(os.path.join(path, n)))
 
 
+def never_packet(path):
+    """True for a NEVER_PACKET directory or anything inside it. Rule 7 reads a backticked
+    `~/dotfiles/...` span as a dependency, and release 1's VERIFICATION.md backticks
+    `~/dotfiles/secrets` in a sentence explaining that the sandbox denies reading it —
+    which is exactly what made the assembler try to read it. A packet goes to `ask-codex`,
+    a third-party model: the `.env` files never matched the copied suffixes, but a
+    `README.md` documenting the layout would have. Tested before any listing, so the
+    protection is this rule and not the sandbox that happened to refuse first."""
+    for name in NEVER_PACKET:
+        base = os.path.realpath(os.path.join(DOTFILES, name))
+        if path == base or path.startswith(base + os.sep):
+            return True
+    return False
+
+
 def deps_of(path, root, tracked):
     """Return (deps, unresolved, ambiguous) for one file. Paths in `deps` are absolute."""
     deps, unresolved, ambiguous = [], [], []
@@ -190,13 +209,28 @@ def deps_of(path, root, tracked):
                 unresolved.append("unresolved: %s (named by %s:%d)"
                                   % (target, namer, line_of(raw, target)))
             return
+        if never_packet(got):
+            # loud, never silent: a file dropped without a note is the failure the
+            # packet's own rules exist to prevent. Before the isdir branch, because a
+            # backticked `~/dotfiles/secrets/setup.sh` is a FILE and never lists anything.
+            unresolved.append("excluded: %s (named by %s:%d, never copied into a packet)"
+                              % (got, namer, line_of(raw, target)))
+            return
         if os.path.isdir(got):
-            if rule == 5:
-                for child in dir_children(got, (".md",)):
-                    deps.append(Dep(os.path.realpath(child), rule, RULE_TIER[rule]))
-            elif rule == 7:
-                for child in dir_children(got, (".md", ".py", ".sh")):
-                    deps.append(Dep(os.path.realpath(child), rule, RULE_TIER[rule]))
+            suffixes = {5: (".md",), 7: (".md", ".py", ".sh")}.get(rule)
+            if suffixes is None:
+                return
+            try:
+                children = dir_children(got, suffixes)
+            except OSError:
+                # a directory this process cannot list contributes nothing and must not
+                # be fatal: one PermissionError on `~/dotfiles/secrets` propagated out of
+                # main() and killed the whole assembly, manifest included.
+                unresolved.append("unreadable: %s (named by %s:%d, not copied)"
+                                  % (got, namer, line_of(raw, target)))
+                return
+            for child in children:
+                deps.append(Dep(os.path.realpath(child), rule, RULE_TIER[rule]))
             return
         deps.append(Dep(got, rule, RULE_TIER[rule]))
 
@@ -347,7 +381,12 @@ def drop_to_cap(tiers, dependents):
 
 def write_manifest(out_dir, artifact, brief, rows, notes, dropped, cap_exceeded):
     total = sum(size for _, _, _, size in rows)
-    lines = ["# Packet manifest — %s" % os.path.basename(artifact), "",
+    # Frontmatter, not decoration: docs-graph-check.py's check 5 requires a leading `---`
+    # block carrying `serves:`, and a manifest is committed. Without this every packet
+    # adds a `no-serves:` finding the operator hand-patches away (ruling R88).
+    lines = ["---", "serves: both", "type: reference",
+             "updated: %s" % datetime.date.today().isoformat(), "---", "",
+             "# Packet manifest — %s" % os.path.basename(artifact), "",
              "Assembled by `advisor-packet.py` from %s, brief %s." % (artifact, brief),
              "**%d files, %d KB** against the %d-file / %d KB cap."
              % (len(rows), total // 1024, CAP_FILES, CAP_BYTES // 1024), "",
