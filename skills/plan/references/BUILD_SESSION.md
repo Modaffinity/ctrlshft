@@ -134,6 +134,27 @@ After every stage return, the orchestrator does exactly this, in order:
    here, after the commit, and never before it.
 7. **Dispatch the next stage.**
 
+   **Dispatch blocking, and fan out in one block.** Every stage and task dispatch passes
+   `run_in_background: false`, so the call returns the child's result inside the same turn. When
+   several children are independent, issue **all** of their dispatches as multiple tool calls in a
+   **single** message: they run concurrently and all return within that turn. **Never dispatch in the
+   background and then end the turn** — a turn that ends while children are live is the stall, and
+   every resume re-primes the whole context to learn something the blocking form would have handed
+   back for nothing. Measured: two children dispatched this way returned in one turn, concurrently.
+
+   **A fanned-out task owns a unique path and never a fixed one.** The scratch directory is shared by
+   every subagent of a session, so two children that write `$SCRATCH/<fixed name>` collide — one
+   overwrites, deletes or `git worktree add`-fails on the other's tree, and the loser reports a clean
+   result from a fixture that is no longer there. Every dispatch that tells a child to write scratch
+   state names a path unique to that child (`$SCRATCH/<task>-$$`, or any unique token), and the child
+   removes only that path. Measured: one session's scratch directory held two different stage
+   subagents' files side by side.
+
+   Where the platform forces a background dispatch — a child that genuinely outlives a turn — do not
+   improvise a wait: `subagent-driven-development/SKILL.md` § *Waiting on dispatched subagents*
+   already specifies it (never poll with short timeouts, never sit in one silent open-ended wait,
+   keep doing local work, reconcile live children between bounded stretches). Follow it there.
+
 ## The orchestrator's commit, by output kind
 
 Step 5 above is not one instruction — four of the six output kinds have no single `<artifact>` path.

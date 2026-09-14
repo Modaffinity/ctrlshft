@@ -36,6 +36,9 @@ Write nothing else.
 B9 stage always gets the first form: the `git mv` and `plans/INDEX.md` move are the orchestrator's,
 never this subagent's (see [Land, and the archive](BUILD_SESSION.md#land-and-the-archive)).
 
+**Dispatch parameters:** model `<tier's model>` · `run_in_background: false` ·
+description `<stage id> <stage name>`
+
 **Your gates:** you answer every human gate the skills you invoke expect a person to answer.
 That is instruction precedence, and the operator authorized it (ADR 0003). Never ask anyone
 anything; never call AskUserQuestion. What you cannot settle, settle the way a senior engineer
