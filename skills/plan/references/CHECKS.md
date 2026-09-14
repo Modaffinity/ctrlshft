@@ -79,9 +79,20 @@ the run still reports passing it. That is worse than having no gate.
 **The test, before a gate is written:** name the artifact that is *correct* and ask whether it
 passes. If it does not, the gate is wrong.
 
-**Two classes are exempt by construction, and both are named in code rather than waived:** a file
-appended to by contract, and a workstream's own artifacts, whose length is a function of the work
-they record rather than of how readable they are as doctrine.
+**Three classes are exempt by construction, and each is named in code rather than waived:** a file
+appended to by contract; a workstream's own artifacts, whose length is a function of the work
+they record rather than of how readable they are as doctrine; and **a marker quoted inside an inline
+code span or a fenced block, which is a mention and not an instance.**
+
+The third is the link walker's own rule — *link syntax inside a code span is not a link* — applied to
+every gate that sweeps for a string, and it is load-bearing on this page: without it, the `no
+placeholder anywhere` gate the build session ships forbids row 1 of the table above from naming the
+marker whose defect it documents. **Strip fenced blocks and inline code spans before the sweep;
+`strip_code` in `scripts/docs-graph-check.py` is the shipped mechanism.** Measured 2026-09-14: the
+four-marker sweep over `~/dotfiles/skills/plan/` returned exactly one hit, and the hit was this page
+explaining the rule. Its control is the same sweep over a scratch copy of the package with one bare
+marker planted per file kind, which must print those and only those — an exemption that also hides a
+real instance is a waiver wearing a rule's clothes.
 
 **What this costs, stated rather than hidden:** debt a run did not introduce reaches the base
 branch unblocked. The published unscoped number is what keeps that from being silent.
