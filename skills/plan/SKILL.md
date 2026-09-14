@@ -47,12 +47,12 @@ The spine runs inside plan mode or outside it. Entering plan mode never invokes 
 | P4 | **Grill** | "grill me on this" | P2, P3 | `CONTEXT.md` terms, `docs/adr/NNNN-*.md` | — | the operator stops the interview; every question answered or recorded as a Delegated decision |
 | P5 | **Brief** | "write the brief" | P1–P4 | `plans/<slug>/BRIEF.md` | — | committed, tracked, and its clickable link given to the operator |
 | P6 | **Handoff** | "hand off" | P5 | one paste-able prompt in chat | — | the prompt names the pod path, the branch, `BRIEF.md` and the read-pack |
-| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | strong | the document exists, is under 300 lines, is tracked, and `README.md` links it |
+| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | standard | the document exists, is under 300 lines, is tracked, and `README.md` links it |
 | B2 | **Spec** | "write the spec" | `BRIEF.md` + read-pack | `plans/<slug>/SPEC.md` | strongest | brainstorming's Spec Self-Review passes; every open question the brief raised is settled |
-| B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | strong | a Codex round and a de-risk round have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
+| B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | standard · strongest | a Codex round and a de-risk round have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
 | B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere |
-| B5 | **Plan review** | "review the plan" | the plan + packet | findings, returned | strong | same as B3 |
-| B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | per SDD | every task in the plan has a commit and a passed task review |
+| B5 | **Plan review** | "review the plan" | the plan + packet | findings, returned | standard · strongest | same as B3 |
+| B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | strongest · per SDD | every task in the plan has a commit and a passed task review |
 | B7 | **Docs** | "run the docs stage" | the branch | `plans/<slug>/DOCS.md` + the files it changes | standard | all eight checklist items changed or confirmed with a reason |
 | B8 | **Land** | "verify and land" | the branch | a merge commit, or a stop | standard | full verification passes **and** the merge is clean **and** the post-merge docs check passes; any one failing is a stop condition |
 | B9 | **Report** | "report" | `STATE.md` | the report in chat; `plans/archive/<slug>/` | standard | report delivered, folder moved, `plans/INDEX.md` row moved |

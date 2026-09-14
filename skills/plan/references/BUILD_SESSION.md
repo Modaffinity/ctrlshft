@@ -7,12 +7,12 @@ operator input — until B9's report or a `stop` verdict.
 
 | # | Stage | Trigger | Input | Output | Model | Exit condition |
 |---|---|---|---|---|---|---|
-| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | strong | the document exists, is under 300 lines, is tracked, and `README.md` links it · [B1's procedure](GROUND_STAGE.md) |
+| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | standard | the document exists, is under 300 lines, is tracked, and `README.md` links it · [B1's procedure](GROUND_STAGE.md) |
 | B2 | **Spec** | "write the spec" | `BRIEF.md` + read-pack | `plans/<slug>/SPEC.md` | strongest | brainstorming's Spec Self-Review passes; every open question the brief raised is settled |
-| B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | strong | a [Codex round](INTERFACES.md#the-codex-prompt) and a [de-risk round](INTERFACES.md#the-de-risk-dispatch) have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
+| B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | standard · strongest | a [Codex round](INTERFACES.md#the-codex-prompt) and a [de-risk round](INTERFACES.md#the-de-risk-dispatch) have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
 | B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere · [what a plan step carries](#what-a-plan-step-carries) · every acceptance check it writes follows [CHECKS.md](CHECKS.md) |
-| B5 | **Plan review** | "review the plan" | the plan + packet | findings, returned | strong | same as B3 |
-| B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | per SDD | every task in the plan has a commit and a passed task review · every check it runs follows [CHECKS.md](CHECKS.md) |
+| B5 | **Plan review** | "review the plan" | the plan + packet | findings, returned | standard · strongest | same as B3 |
+| B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | strongest · per SDD | every task in the plan has a commit and a passed task review · every check it runs follows [CHECKS.md](CHECKS.md) |
 | B7 | **Docs** | "run the docs stage" | the branch | `plans/<slug>/DOCS.md` + the files it changes | standard | all eight checklist items changed or confirmed with a reason |
 | B8 | **Land** | "verify and land" | the branch | a merge commit, or a stop | standard | full verification passes **and** the merge is clean **and** the post-merge docs check passes; any one failing is a stop condition · its gates follow [CHECKS.md](CHECKS.md) |
 | B9 | **Report** | "report" | `STATE.md` | the report in chat; `plans/archive/<slug>/` | standard | report delivered, folder moved, `plans/INDEX.md` row moved |
@@ -33,6 +33,71 @@ Every one of these skills expects a human to answer its own gates — `writing-p
 brainstorming's Spec Self-Review, `verification-before-completion`'s checks. A stage subagent answers
 them itself; that instruction, and the operator authorization behind it, live once in
 [the dispatch brief](INTERFACES.md#the-dispatch-brief)'s *Your gates* field and are not restated here.
+
+## Choosing the model
+
+**Three tiers, mapped once** to what this harness actually offers:
+
+| Tier | This harness | Measured in use |
+|---|---|---|
+| `cheap` | `haiku` | this stage's two probe dispatches, `.meta.json` `"model":"haiku"` |
+| `standard` | `sonnet` | B1 Ground, `.meta.json` `"model":"sonnet"` |
+| `strongest` | `opus` | B2 Spec, `.meta.json` `"model":"opus"` |
+
+The Agent tool also offers `fable`. It is **not** assigned a tier, because this run has not measured
+it and naming a model without measuring it is exactly the assumption `C9` forbids.
+
+**The rule, as it ships:**
+
+**Name the model in every dispatch.** An omitted model inherits the orchestrator's, which is the
+most expensive one — `subagent-driven-development/SKILL.md` says so and this spine depends on it.
+**The verb test.** *"Apply this specified list"* or *"run these and report"* → `cheap`. *"Decide"*,
+*"design"*, *"find what is wrong"* → `strongest`. Everything between → `standard`. **On real
+doubt, go bigger:** quality is never traded for spend.
+**Turn count beats token price** (SDD's measurement, cited not restated): a cheaper model that
+takes three times the turns costs more. A tier is a floor, not a target.
+
+**The assignment for this spine:**
+
+| Stage or step | Tier | Why |
+|---|---|---|
+| B1 Ground | `standard` | applies a specified procedure — `GROUND_STAGE.md` makes it mechanical |
+| B2 Spec | `strongest` | decide and design; the brief names it |
+| B3/B5 Coverage pass | `standard` | *finds what is absent* — a list walk with judgement at each row |
+| B3/B5 Codex round | `standard` | assembles a packet, shells `ask-codex`, transcribes findings; Codex does the reasoning |
+| B3/B5 de-risk round | `strongest` | designs falsifying experiments; the brief names it |
+| B4 Plan | `strongest` | the brief names it |
+| B6 controller | `strongest` | dispatches, judges reports, rules |
+| B6 implementers and reviewers | per SDD | SDD's own table, cited |
+| B6 final whole-branch review | `strongest` | the brief names it |
+| B7 Docs · B8 Land · B9 Report | `standard` | specified checklists and named gates |
+| the spend-accounting step | `cheap` | runs a script and reports its output |
+
+**Per-task model choice inside B6 is not restated here** — it is `subagent-driven-development`'s own,
+at `subagent-driven-development/SKILL.md` lines 186–218 of superpowers 6.3.0, and this section cites
+it by file and line rather than copying it.
+
+### The context ceiling (`C6`)
+
+Three bands, read against the orchestrator's own context at each stage boundary:
+
+| Context at the boundary | Action | Provenance |
+|---|---|---|
+| under 250,000 | nothing | measured this run: a heavy artifact-writing stage peaked at 148,233 |
+| 250,000 – 500,000 | a **blocking** Finding on the *next* stage's ledger block, closed by handing over by file instead of by paste, or by a Ruling naming what made it necessary | headroom above the observed heavy case, well below the failure |
+| over 500,000 | `stop` — the run is reproducing release 1's failure and spending the allowance to do it | release 1's controller reached **829k** |
+
+The thresholds are a first calibration from two measurements, and the run reports its actual figures
+so a later release can tighten them with data rather than with judgement.
+
+**Runnable check:** `stage-spend.py --orchestrator <session-id>` (Task 11).
+
+**And the rule that makes the ceiling achievable**, restated locally because a rule that depends on
+another skill staying loaded is not enforced:
+
+**The orchestrator never pastes a file's content into a dispatch; it names the path.** Context is
+pointers, never copies — a copy goes stale silently and a pointer cannot. A stage return is short
+by template; the artifact carries the detail.
 
 ## Why the plan file is named `<slug>-PLAN.md`
 
@@ -102,20 +167,9 @@ After every stage return, the orchestrator does exactly this, in order:
    - **`stop`** → write the ledger block, set frontmatter `verdict: stop`, commit, and report to the
      operator naming the stop condition and the exact command that resumes the run. **No next
      dispatch.** The session ends here.
-4. **Write the ledger block**; replace the frontmatter and *Resume here*. Every field below is
-   `REQUIRED` — `**Commits:**` takes `—` for a kind with no commits of its own, never an omitted
-   line:
-
-   ```
-   ### Stage <N> — <name> · <verdict> · <date>
-
-   - **Artifact:** REQUIRED — `<path>`, <N> lines — or the OUTPUT block's contents for a non-`file` kind
-   - **Commits:** REQUIRED — `<repo>: <first>^..<last>` for a `commits`, `merge` or `move` kind — one line per repo when the workstream spans two; `<repo>: <last>` when `<first>` is a root commit with no parent (`<first>^` does not resolve), bounded instead by this block's own `TASKS` count rather than a range; `—` for every other kind
-   - **How:** REQUIRED — one or two lines
-   - **Findings, blocking:** REQUIRED — the list, or "none"
-   - **Findings, advisory:** REQUIRED — the list, or "none"
-   - **Rulings:** REQUIRED — one line each, or "none"
-   ```
+4. **Write the ledger block**, using the canonical template at [STATE.md](INTERFACES.md#statemd);
+   replace the frontmatter and *Resume here*. Every field there is `REQUIRED` — `**Commits:**` takes
+   `—` for a kind with no commits of its own, never an omitted line.
 
    A review stage's block (B3, B5) is headed `### Stage <N> — <stage name>, round <n> of 3 ·
    <verdict> · <date>` instead — `STATE.md`'s template carries no round-number field, and
