@@ -90,6 +90,7 @@ because a live v1 plan tree still depends on them; `/carve` enters them at
 | [INTERFACES.md](references/INTERFACES.md) | Output kinds · The dispatch brief · The stage return · The revision dispatch · STATE.md · The Codex prompt · The de-risk dispatch |
 | [REVIEW_ROUNDS.md](references/REVIEW_ROUNDS.md) | What a round is · Classifying a finding · The cap, and what happens at it · The advisor packet · Overflow · Cross-repo packets |
 | [DOCS_STAGE.md](references/DOCS_STAGE.md) | The eight items · What item 8 fixes and what it records · The DOCS.md template · What docs-graph-check.py checks |
+| [CHECKS.md](references/CHECKS.md) | The two rules behind every acceptance check this package writes: a check states what it returns when the thing IS there; a gate a correct artifact cannot pass is rescoped and reported, never waived |
 | [V1_LEGACY.md](references/V1_LEGACY.md) | v1's seven-step procedure; it links the nine v1 references |
 
 | Entry point | Reaches |

@@ -10,11 +10,11 @@ operator input — until B9's report or a `stop` verdict.
 | B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | strong | the document exists, is under 300 lines, is tracked, and `README.md` links it · [B1's procedure](GROUND_STAGE.md) |
 | B2 | **Spec** | "write the spec" | `BRIEF.md` + read-pack | `plans/<slug>/SPEC.md` | strongest | brainstorming's Spec Self-Review passes; every open question the brief raised is settled |
 | B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | strong | a [Codex round](INTERFACES.md#the-codex-prompt) and a [de-risk round](INTERFACES.md#the-de-risk-dispatch) have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
-| B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere · [what a plan step carries](#what-a-plan-step-carries) |
+| B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere · [what a plan step carries](#what-a-plan-step-carries) · every acceptance check it writes follows [CHECKS.md](CHECKS.md) |
 | B5 | **Plan review** | "review the plan" | the plan + packet | findings, returned | strong | same as B3 |
-| B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | per SDD | every task in the plan has a commit and a passed task review |
+| B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | per SDD | every task in the plan has a commit and a passed task review · every check it runs follows [CHECKS.md](CHECKS.md) |
 | B7 | **Docs** | "run the docs stage" | the branch | `plans/<slug>/DOCS.md` + the files it changes | standard | all eight checklist items changed or confirmed with a reason |
-| B8 | **Land** | "verify and land" | the branch | a merge commit, or a stop | standard | full verification passes **and** the merge is clean **and** the post-merge docs check passes; any one failing is a stop condition |
+| B8 | **Land** | "verify and land" | the branch | a merge commit, or a stop | standard | full verification passes **and** the merge is clean **and** the post-merge docs check passes; any one failing is a stop condition · its gates follow [CHECKS.md](CHECKS.md) |
 | B9 | **Report** | "report" | `STATE.md` | the report in chat; `plans/archive/<slug>/` | standard | report delivered, folder moved, `plans/INDEX.md` row moved |
 
 ## Which superpowers skill each stage invokes
@@ -232,7 +232,8 @@ the stage disk says, not the stage the frontmatter claims.
    175-finding baseline is pre-existing pod debt this workstream is not on the hook to fix, and a gate
    that re-litigates the whole tree on every workstream can never pass — not for this one, not for any
    future one (ruling R11: a gate whose pass condition is unreachable is worse than no gate — the
-   first session to meet it learns to override the stage, and every session after inherits the habit).
+   first session to meet it learns to override the stage, and every session after inherits the habit
+   — the general form is [CHECKS.md](CHECKS.md)'s rule 2).
    The unscoped total, and its delta against the baseline, is **reported** in `DOCS.md`, never gated
    on. This order is correct and deliberate — `finishing-a-development-branch` verifies in its own
    Step 1, before the merge menu in its Step 4.

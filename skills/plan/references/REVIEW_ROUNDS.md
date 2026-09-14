@@ -159,7 +159,7 @@ droppable. A tier D drop is level 2 and by design; a tier B or C drop means the 
 carries the one level of closure the brief promises, which is the failure the flag exists to name.
 The narrow form was measured unreachable in practice: on this package's own review packet, cutting a
 192-file closure down to 21 to fit the byte cap dropped 171 files — 37 of them level-1 tier C — and
-raised nothing, because tier A alone never exceeded the cap.
+raised nothing, because tier A alone never exceeded the cap — a gate that cannot fail, [CHECKS.md](CHECKS.md)'s rule 1 turned the other way.
 
 If tier A alone exceeds the byte cap, the round still runs and the manifest still records
 `cap-exceeded`: the artifact plus the brief is the minimum viable packet, and refusing to review is
