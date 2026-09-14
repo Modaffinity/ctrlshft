@@ -8,6 +8,7 @@ Usage: advisor-packet.py <artifact> --brief <path> --out <dir> [--root <pod root
 Stdlib only; Python 3.9 compatible. The rule set is references/REVIEW_ROUNDS.md.
 """
 import argparse
+import datetime
 import glob
 import hashlib
 import os
@@ -380,7 +381,12 @@ def drop_to_cap(tiers, dependents):
 
 def write_manifest(out_dir, artifact, brief, rows, notes, dropped, cap_exceeded):
     total = sum(size for _, _, _, size in rows)
-    lines = ["# Packet manifest — %s" % os.path.basename(artifact), "",
+    # Frontmatter, not decoration: docs-graph-check.py's check 5 requires a leading `---`
+    # block carrying `serves:`, and a manifest is committed. Without this every packet
+    # adds a `no-serves:` finding the operator hand-patches away (ruling R88).
+    lines = ["---", "serves: both", "type: reference",
+             "updated: %s" % datetime.date.today().isoformat(), "---", "",
+             "# Packet manifest — %s" % os.path.basename(artifact), "",
              "Assembled by `advisor-packet.py` from %s, brief %s." % (artifact, brief),
              "**%d files, %d KB** against the %d-file / %d KB cap."
              % (len(rows), total // 1024, CAP_FILES, CAP_BYTES // 1024), "",
