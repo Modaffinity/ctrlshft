@@ -10,7 +10,7 @@ operator input — until B9's report or a `stop` verdict.
 | B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | strong | the document exists, is under 300 lines, is tracked, and `README.md` links it |
 | B2 | **Spec** | "write the spec" | `BRIEF.md` + read-pack | `plans/<slug>/SPEC.md` | strongest | brainstorming's Spec Self-Review passes; every open question the brief raised is settled |
 | B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | strong | a [Codex round](INTERFACES.md#the-codex-prompt) and a [de-risk round](INTERFACES.md#the-de-risk-dispatch) have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
-| B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere |
+| B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere · [what a plan step carries](#what-a-plan-step-carries) |
 | B5 | **Plan review** | "review the plan" | the plan + packet | findings, returned | strong | same as B3 |
 | B6 | **Implement** | "implement the plan" | the plan | commits on the workstream branch(es) | per SDD | every task in the plan has a commit and a passed task review |
 | B7 | **Docs** | "run the docs stage" | the branch | `plans/<slug>/DOCS.md` + the files it changes | standard | all eight checklist items changed or confirmed with a reason |
@@ -52,6 +52,27 @@ against a script that ignores instructions. **What proves it held:** after B6's 
 its trigger:** if a future SDD version accepts an explicit workspace name, revert to `PLAN.md` plus
 that instruction; the trigger is `sdd-workspace` gaining a name parameter. The docs stage amends ADR
 0001 and `CONTEXT.md` to record that the fallback is now the rule.
+
+## What a plan step carries
+
+`writing-plans` requires real, runnable code in every step. That is right for a code deliverable
+and wrong for a prose one. **A plan step carries whatever a fresh subagent with no memory needs in
+order to produce the thing and prove it produced the thing — for code that is the code; for prose
+it is the acceptance check.**
+
+A prose step carries: the file and the section it writes; what that section must establish, in
+requirements rather than sentences; the constraints and exact values it must use verbatim; and a
+**runnable acceptance check** with what it returns when the work is correct and what it returns
+when the work is absent. It does **not** carry a transcript of the prose to be written. Two
+reasons, both structural: the plan is re-read on every task for the whole run, so a transcript is
+paid for on every task and not once; and a step that contains its own answer cannot be reviewed —
+the reviewer reads the answer instead of the requirement.
+
+Measured: one release produced 4,161 lines of plan for a ~1,500-line prose deliverable, and that
+plan is most of why its execution controller's context reached 829k.
+
+**The one thing a prose step always copies verbatim is a template or an exact string the
+deliverable must contain byte-for-byte.** Paraphrasing those is a separate, worse defect.
 
 ## The between-stages loop
 
