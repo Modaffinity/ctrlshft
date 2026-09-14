@@ -7,7 +7,7 @@ operator input — until B9's report or a `stop` verdict.
 
 | # | Stage | Trigger | Input | Output | Model | Exit condition |
 |---|---|---|---|---|---|---|
-| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | strong | the document exists, is under 300 lines, is tracked, and `README.md` links it |
+| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | strong | the document exists, is under 300 lines, is tracked, and `README.md` links it · [B1's procedure](GROUND_STAGE.md) |
 | B2 | **Spec** | "write the spec" | `BRIEF.md` + read-pack | `plans/<slug>/SPEC.md` | strongest | brainstorming's Spec Self-Review passes; every open question the brief raised is settled |
 | B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | strong | a [Codex round](INTERFACES.md#the-codex-prompt) and a [de-risk round](INTERFACES.md#the-de-risk-dispatch) have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
 | B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere · [what a plan step carries](#what-a-plan-step-carries) |

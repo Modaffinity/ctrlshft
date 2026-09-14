@@ -85,6 +85,7 @@ because a live v1 plan tree still depends on them; `/carve` enters them at
 |---|---|
 | `SKILL.md` (this file) | the eight sections above |
 | [PLANNING_SESSION.md](references/PLANNING_SESSION.md) | The six stages · Rules the planning session carries · The handoff |
+| [GROUND_STAGE.md](references/GROUND_STAGE.md) | B1's procedure — the decision with no third branch · the template · the freshness test · the `blocked` path |
 | [BUILD_SESSION.md](references/BUILD_SESSION.md) | The nine stages · Which superpowers skill each stage invokes · Why the plan file is named `<slug>-PLAN.md` · The between-stages loop · The orchestrator's commit, by output kind · Resume · Land, and the archive |
 | [INTERFACES.md](references/INTERFACES.md) | Output kinds · The dispatch brief · The stage return · The revision dispatch · STATE.md · The Codex prompt · The de-risk dispatch |
 | [REVIEW_ROUNDS.md](references/REVIEW_ROUNDS.md) | What a round is · Classifying a finding · The cap, and what happens at it · The advisor packet · Overflow · Cross-repo packets |
