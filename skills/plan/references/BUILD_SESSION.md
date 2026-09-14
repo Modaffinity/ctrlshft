@@ -282,12 +282,60 @@ the stage disk says, not the stage the frontmatter claims.
 1. **Full verification on the branch**, before the merge: the regression subset of the scenarios,
    plus `docs-graph-check.py`, scoped exactly as acceptance criterion 5 already scopes it: the script
    itself runs unscoped over the whole pod, but the gate is the intersection of its findings' paths
-   with `git diff --name-only <base>...HEAD` — an empty intersection passes. `DOCS_STAGE.md`'s
-   175-finding baseline is pre-existing pod debt this workstream is not on the hook to fix, and a gate
-   that re-litigates the whole tree on every workstream can never pass — not for this one, not for any
-   future one (ruling R11: a gate whose pass condition is unreachable is worse than no gate — the
-   first session to meet it learns to override the stage, and every session after inherits the habit
-   — the general form is [CHECKS.md](CHECKS.md)'s rule 2).
+   with `git diff --name-only <base>...HEAD` — an empty intersection passes.
+
+   Measure **twice, in two clean worktrees**, never against the live working tree:
+
+   ```
+   W="$SCRATCH/c13-$$"; mkdir -p "$W"          # unique per invocation — never a fixed name
+   git worktree add --detach "$W/base" <base>
+   git worktree add --detach "$W/tip"  HEAD
+   python3 <dotfiles>/skills/plan/scripts/docs-graph-check.py --root "$W/base" | grep -vc '^exempt:'
+   python3 <dotfiles>/skills/plan/scripts/docs-graph-check.py --root "$W/tip"  | grep -vc '^exempt:'
+   git worktree remove --force "$W/base"; git worktree remove --force "$W/tip"
+   git worktree prune; rm -rf "$W"             # removes only this invocation's own directory
+   ```
+
+   🛑 **The worktree paths are unique per invocation and never `$SCRATCH/base` / `$SCRATCH/tip`.**
+   `$SCRATCH` is **one directory shared by every subagent of a session** — re-verified at round 2,
+   which found round 1's `codex-prompt-b3r1.txt` sitting beside round 2's own probe files, two
+   different stage subagents in one directory. Fixed names plus [§ 7.2a](#72a--the-blocking-dispatch-rule--ships-in-build_sessionmd)'s
+   instruction to fan independent tasks out in one message is the brief's founding incident re-armed:
+   `git worktree add` on an existing path fails, and a sibling's teardown removes your tree mid-walk.
+   `$$` is the shell's own pid, which differs per invocation; any unique token does. Nothing is broken
+   today only because the spine is sequential, and a defect that is latent because nothing has
+   exercised it yet is not a defect that has been survived (ruling R87).
+
+   `git worktree remove` takes **one** worktree per invocation (`-f <worktree>`), so the teardown is
+   two commands. Round 2 measured what the two-operand form actually does: it exits **129 and removes
+   nothing** — wrong in the safe direction, where this spec previously said it *"removes the first and
+   errors on the second"*. The split form exits 0/0 and prunes clean.
+
+   **The gate is the intersection, and only the intersection:** the tip's finding list ∩
+   `git diff --name-only <base>...HEAD` must be **empty**. B8's Land step already defines exactly this
+   gate; `C13` adds no second one.
+   **Reported, never gated:** the two whole-pod counts, their delta, and the `diff` of the two finding
+   lists naming every added and every removed line. They go into `DOCS.md`. A rise in the whole-pod
+   total with an empty intersection is a **reported** fact, not a failure — `ADR 0005`, and ruling R6's
+   accepted trade, which is that inherited debt this run did not introduce reaches the base branch
+   unblocked and visible.
+   **The positive control:** the base count must be **non-zero**. A `0` means the walk never ran —
+   a wrong `--root`, an empty worktree — not that the pod is clean. Report it beside the result.
+   **What it returns when the thing IS there:** the intersection's member lines, named. An empty
+   intersection is a pass **only if** the base control passed and the tip walk produced a non-zero
+   finding list; two zeros from a walk that never ran are indistinguishable from a clean run.
+
+   Verified three times, most recently at the second revision: `git worktree add` works **inside the
+   command sandbox with no `dangerouslyDisableSandbox` override**, changes no branch, and touches no
+   tracked file; the whole add-measure-remove-prune cycle exits 0. **The plan budgets no override for
+   it** — every probe of this mechanism has run sandboxed. This satisfies the constraint that neither
+   repository's branch may change and that `git stash` is forbidden.
+
+   `DOCS_STAGE.md`'s 175-finding baseline is pre-existing pod debt this workstream is not on the hook
+   to fix, and a gate that re-litigates the whole tree on every workstream can never pass — not for
+   this one, not for any future one (ruling R11: a gate whose pass condition is unreachable is worse
+   than no gate — the first session to meet it learns to override the stage, and every session after
+   inherits the habit — the general form is [CHECKS.md](CHECKS.md)'s rule 2).
    The unscoped total, and its delta against the baseline, is **reported** in `DOCS.md`, never gated
    on. This order is correct and deliberate — `finishing-a-development-branch` verifies in its own
    Step 1, before the merge menu in its Step 4.
