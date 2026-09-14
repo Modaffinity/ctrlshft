@@ -170,6 +170,46 @@ def print_stages(session_dir, out=sys.stdout):
     return 2 if bad else 0
 
 
+STAGE_ID = re.compile(r"^B\d+(\s|$)")            # R93: STARTS WITH a stage id
+
+
+def band(context):
+    if context > 500000:
+        return "over-500k STOP"
+    if context >= 250000:
+        return "250k-500k BLOCKING-FINDING"
+    return "under-250k"
+
+
+def print_boundaries(session_dir, out=sys.stdout):
+    agents = load_agents(session_dir)
+    want = {m["toolUseId"]: m for m in agents.values() if m.get("spawnDepth", 1) == 1}
+    found, seen = [], {}
+    for rec in records(session_jsonl(session_dir)):
+        if rec.get("type") != "assistant":
+            continue
+        for block in rec.get("message", {}).get("content", []) or []:
+            if (isinstance(block, dict) and block.get("type") == "tool_use"
+                    and block.get("name") == "Agent" and block.get("id") in want):
+                seen[block["id"]] = seen.get(block["id"], 0) + 1
+                found.append((want[block["id"]]["description"],
+                              usage_total(rec.get("message", {}).get("usage", {}))))
+    out.write("%-3s %-38s %-11s %10s  %s\n" % ("#", "description", "stage?", "context", "band"))
+    for index, (description, context) in enumerate(found, 1):
+        out.write("%-3d %-38s %-11s %10d  %s\n"
+                  % (index, description[:38],
+                     "yes" if STAGE_ID.match(description) else "not a stage",
+                     context, band(context)))
+    duplicates = sorted(k for k, n in seen.items() if n != 1)
+    out.write("control: %d spawnDepth-1 meta files, %d boundary records, %d resolved exactly once\n"
+              % (len(want), len(found), sum(1 for n in seen.values() if n == 1)))
+    if len(found) != len(want) or duplicates or not want:
+        out.write("control: FAILED — a zero means the wrong session file, a duplicate means the "
+                  "parse is matching on something other than the tool-use id\n")
+        return 2
+    return 3 if any(context > 500000 for _, context in found) else 0
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("session", help="a session id or a unique prefix of one")
