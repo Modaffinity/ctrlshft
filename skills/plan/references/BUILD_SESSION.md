@@ -171,14 +171,13 @@ After every stage return, the orchestrator does exactly this, in order:
    replace the frontmatter and *Resume here*. Every field there is `REQUIRED` — `**Commits:**` takes
    `—` for a kind with no commits of its own, never an omitted line.
 
-   A review stage's block (B3, B5) is headed `### Stage <N> — <stage name>, round <n> of 3 ·
-   <verdict> · <date>` instead — `STATE.md`'s template carries no round-number field, and
-   [Resume](#resume) needs one to know where a review picks back up. A revision dispatched between
-   rounds — [the revision dispatch](INTERFACES.md#the-revision-dispatch) — is not a round and does
-   not spend one; it gets its own block, headed `<stage name> revision (not a round)`, never
-   numbered. Those two heading forms are what makes
-   [the cap](REVIEW_ROUNDS.md#the-cap-and-what-happens-at-it) — three rounds, no more — countable
-   from the ledger alone, by anyone reading it afterwards.
+   A review stage's block (B3, B5) is headed `### Stage <N> — <stage name>, <step> · <verdict> ·
+   <date>` instead, where `<step>` is one of the four step names of
+   [the review cycle](REVIEW_ROUNDS.md#the-cycle-and-what-closes-it) — `testing round`,
+   `advisor read`, `rewrite`, `closure check`. **Never a round number.** The cap is gone and so is
+   the numbering, so a block headed `round <n> of 3` is a run that did not follow that section, and
+   the step names are what make the cycle countable from the ledger alone by anyone reading it
+   afterwards. [Resume](#resume) reads the last step name to know where a review picks back up.
 5. **Commit named paths only**, per
    [the orchestrator's commit, by output kind](#the-orchestrators-commit-by-output-kind) below. Never
    `git add -A`: `~/dotfiles` carries another surface's uncommitted work on `main`, and a bulk add

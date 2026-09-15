@@ -65,41 +65,81 @@ The test is mechanical, so that two readers agree:
   session; it is not a finding to rule on. If the only way to close a blocking finding changes the
   brief's scope, the verdict is `stop` and no ruling is written.
 
-## The cap, and what happens at it
+## The cycle, and what closes it
 
-Blocking findings send the artifact back for [The revision dispatch](INTERFACES.md#the-revision-dispatch),
-and a further round runs against the revision. 🛑 **Three rounds per artifact, counting both advisor
-kinds — three in total, not three each.** The default allocation is round 1 Codex, round 2 de-risk,
-round 3 a targeted re-check of the revision by whichever kind the open findings call for; the
-orchestrator may re-allocate but never exceed three.
+**One evidence-first cycle per artifact.** There is no round budget to allocate and no cap to
+reach. The three-round default is **deleted**, and so is its allocation — a blind Codex reading
+first, a de-risk reading second, a targeted re-check of the revision third. Four named steps
+replace all of it, run once, in this order.
 
-At the cap the orchestrator rules on each residual blocking finding itself
-(`Ruling: <decision> — <why> — <what it costs if wrong>`), records every residual finding of both
-classes in the ledger **and** in the final report, and proceeds. It does not run a fourth round and
-does not ask the operator. One exception: a residual finding it cannot rule on because either ruling
-changes the brief is the stop condition above, not a ruling.
+| # | Step | Model | What it does |
+|---|---|---|---|
+| 1 | **Testing round** | `strongest` | **runs** the artifact's load-bearing assumptions as experiments in the session scratchpad and reports what happened. Reasoning about a probe is not running it |
+| 2 | **Advisor read** | `standard` | the second model reads the artifact **together with step 1's evidence** — [the packet](#the-advisor-packet) gains the testing round's output as a file |
+| 3 | **One rewrite** | `strongest` | closes the findings; it may decline one, recorded in the artifact's own decisions table |
+| 4 | **Closure check** | `cheap` | [below](#the-closure-check) |
 
-A revision made after the last round is verified by the orchestrator against the open-findings list
-rather than by an advisor — that is what "rule and record residuals" means, and every such residual
-is named in the report.
+Blocking findings from step 2 are closed by step 3, which is
+[The revision dispatch](INTERFACES.md#the-revision-dispatch). No further reading runs against the
+revision; step 4 does instead, and it asks a different question.
 
-**Never buy a fourth round.** Three is the cap whether or not the open finding feels close to
-closed.
+**The ordering is the improvement, not just the saving.** Release 2 ran Codex first and blind —
+six cycles across two artifacts, every one of them a reading of a document nobody had tested. An
+advisor reading an artifact beside *what broke when it ran* finds a different class of defect than
+an advisor reading it alone, which is
+[Reading cannot detect a wrong fact about the machine](#reading-cannot-detect-a-wrong-fact-about-the-machine)
+turned into an order of operations rather than a warning. Two cycles per workstream — spec and
+plan — against the six that ran.
+
+**Ledger blocks are headed by step name** — `testing round`, `advisor read`, `rewrite`,
+`closure check` — and **never** `round <n> of 3`. The numbering is gone with the cap, so a
+numbered heading is a run that did not follow this section, and that is readable from the ledger
+alone by anyone afterwards.
+
+### The closure check
+
+Step 4 is a `cheap`-model dispatch answering exactly one question per finding: **was this named
+finding actually closed, yes or no.** Its input is the N findings step 2 returned and the
+rewritten artifact. Its output is N rows and a total:
+
+```
+<finding id> | closed | not closed | <one clause>
+CLOSED: <n> of <N>
+```
+
+**The total is derived from the rows, never transcribed.** Measured: a closure check reported
+`CLOSED: 36 of 36` while listing **33** rows, omitting three findings entirely. Those three were
+verified by hand afterwards and all were genuinely closed, so nothing was lost that time — but a
+checker whose own total is not derived from its own rows can report any number, and that one did.
+Count the row lines and compare to N: **a short list fails the check exactly as an unclosed row
+does.**
+
+Unclosed items get **exactly one targeted fix and one re-check.** After that the orchestrator
+rules on each residual itself (`Ruling: <decision> — <why> — <what it costs if wrong>`), records
+every residual of both classes in the ledger **and** in the final report, and proceeds. It does
+not buy another cycle and does not ask the operator. One exception: a residual it cannot rule on
+because either ruling changes the brief is [the stop condition](#classifying-a-finding), not a
+ruling.
+
+**Never buy a second cycle.** Release 2's residuals — four on the spec, three on the plan, still
+open *after* round 3 — are the measured reason step 4 exists at all: a third reading did not find
+them, and one closed question per named finding does.
 
 | Excuse | Reality |
 |---|---|
-| "One more round would close it" | Three rounds per artifact, counting both kinds. At the cap you rule and record — you do not buy a fourth, however close the last round looked. |
+| "One more round would close it" | Rounds are gone. The cycle is testing round, advisor read, rewrite, closure check. An unclosed finding buys one targeted fix and one re-check, then a Ruling — however close it looked. |
+| "The closure check says 36 of 36, so we are done" | Count its rows against N. A total the checker did not derive from its own rows is a number, not a result. |
 
 Red flags — stop and re-read this section if you notice any of these in your own reasoning:
 
-- you are on round 3, the finding looks almost closed, and a fourth round feels cheap;
-- the advisor is deterministic or scripted and "one more call costs nothing" reasoning follows from
-  that;
-- there is no `STATE.md` yet — its absence is not permission to skip the ledger entry the cap
+- the closure check came back clean and nobody counted its rows against N;
+- a finding looks almost closed after its one re-check and a second cycle feels cheap;
+- the advisor read is about to run before the testing round, or without its evidence in the packet;
+- there is no `STATE.md` yet — its absence is not permission to skip the ledger entry this section
   requires once it exists.
 
 ⚠️ `evidence/` is gitignored in a CortexOS pod, so an `ask-codex` evidence folder is **not** a
-tracked record — a fresh clone does not have it. Each round's findings are written into `STATE.md`'s
+tracked record — a fresh clone does not have it. Each step's findings are written into `STATE.md`'s
 ledger, which is tracked, with the evidence folder named as a pointer. Otherwise the "reviewed"
 record is something a fresh clone cannot see.
 
@@ -202,44 +242,52 @@ the manifest is the tracked record.
 
 ## The Coverage pass
 
-**Not a round.** It runs before round 1, at the first step of B3, and again at the first step of
-B5. It does not spend one of [the cap](#the-cap-and-what-happens-at-it)'s three. It takes the shape
-[the revision dispatch](INTERFACES.md#the-revision-dispatch) already defines: its own dispatched
-subagent, `findings` kind, model `standard`, ledgered under its own heading —
-`### Stage B3 — <stage name>, Coverage pass (not a round) · <verdict> · <date>`. **What it reads:**
-`BRIEF.md` and the artifact, nothing else. **What it writes:** nothing — it reports, it does not
-repair.
+**Not a round, and no longer a dispatch.** It is a script —
+`~/dotfiles/skills/plan/scripts/coverage-pass.py <brief> <artifact> [--kind spec|plan]` — run at
+the first step of B3 and again at the first step of B5. It reports; it does not repair. **What it
+reads:** `BRIEF.md` and the artifact, nothing else.
+
+**And it runs again at the freeze whether anyone remembers it or not.** `freeze-gate.py` executes
+it against the exact bytes being frozen and refuses to record the freeze on any non-zero exit. A
+claimed `COVERAGE:` line is never read by anything: a line can be written without the pass having
+run, which is precisely how a specified, reviewed artifact reached `frozen` with the pass skipped.
+Re-running a script is free, so a rewrite that changes the artifact simply means Coverage runs
+again.
 
 **The brief's Constraints are the requirement list.** *Research used* and *Decisions settled* are
 provenance, and demand nothing.
 
 **Stable keys on both sides.** The spec carries one canonical `C<n>` key table, one row per key, in
 the brief's order, naming the heading that satisfies it. **The pass reads that table as a table,
-never greps a key** — `\bC1\b` matches `C11`, and `\b` behaves differently under BSD and GNU `grep`.
-It then verifies each row's cited heading exists in the artifact — otherwise an artifact could
-satisfy the table by writing the table.
+never greps a key** — `C1` is a prefix of `C11`, and `grep -c 'C1'` returns 1 against a line naming
+only `C11`. ⚠️ The reason usually given for this rule — that `\b` behaves differently under BSD and
+GNU `grep` — is **false**: measured on BSD grep 2.6.0 it behaves identically in ERE, BRE, `-w` and
+Python `re`. The prefix hazard alone carries the rule, and a rule kept for a wrong reason is one
+nobody can reconstruct when it matters.
 
-**What it returns:**
+It then verifies each row's cited heading exists in the artifact — otherwise an artifact could
+satisfy the table by writing the table. **The heading rule:** a row's `§ <n>` resolves iff some
+`##` or `###` heading begins with that same number, with fenced blocks and inline code spans
+stripped first, so a heading quoted inside a template is a mention and not an instance.
+
+**What it prints:**
 
 ```
-ARTIFACT: none
+ARTIFACT: <path>
 COVERAGE: <n> of <n> constraints covered
 
 | key | status | where |
 |---|---|---|
-| C1 | covered | § 4 |
+| C1 | covered | § 3 |
 | C7 | ruled | § 8.1, Ruling R6x |
 | C9 | UNCOVERED | — |
 
-BORROWS: <n> of <n> named sources placed
-| source | what it said to take | where it landed |
-|---|---|---|
-
-VERDICT: done | blocked | stop
-
-FINDINGS:
-- [blocking] <key> is UNCOVERED — nothing in <artifact> points at it
+sha256: <of the exact artifact bytes it read>
 ```
+
+**Exit `0`** clean · **`1`** any `UNCOVERED` row, any cited heading absent, or a row for a key the
+brief does not carry · **`2`** the empty case. `COVERAGE: 0 of 0` means the pass could not read the
+brief's Constraints section; that is `blocked`, never a clean pass.
 
 Three statuses, no fourth: `covered` (a section of the artifact satisfies it — cite the section,
 never a line number, because lines move), `ruled` (a Ruling in the artifact drops it, cited), and
@@ -247,14 +295,14 @@ never a line number, because lines move), `ruled` (a Ruling in the artifact drop
 by the artifact covering it or by a Ruling dropping it on the record. **Forgetting is never a
 reason.**
 
-**Its own empty case.** `COVERAGE: 0 of 0` means the pass could not read the brief's Constraints
-section and is a `blocked` verdict, never a clean pass.
+**At B5, one substitution.** `--kind plan` additionally requires that each row's cited section is
+named by at least one task's row in the plan's task table — spec-kit's Pass E, *requirements with
+zero associated tasks*. A plan whose key table points at sections no task builds is covered on
+paper only.
 
-**At B5, one substitution.** The plan satisfies a Constraint when at least one task's requirements
-name the spec section that Constraint's row points at — spec-kit's Pass E, *requirements with zero
-associated tasks*. The finding cap is borrowed and not taken: fourteen Constraints cannot overflow,
-and a cap on a fourteen-row walk would hide the one row that matters.
-
-**The second table, `BORROWS`.** One row per source named in `BRIEF.md` § *Research used*. A
-`not taken — <reason>` row is lawful; a **missing** row is the defect — and it is **advisory**, not
-blocking, since provenance demands nothing. What this ends is the *silent* absence.
+**What the script does not do, and who still does it.** The judgement half — *does § 3 actually
+satisfy C1* — stays with [the cycle](#the-cycle-and-what-closes-it); what became mechanical is only
+that the pass **executed against the frozen bytes**. The second table, **`BORROWS`** — one row per
+source named in `BRIEF.md` § *Research used*, where a `not taken — <reason>` row is lawful and a
+**missing** row is the defect — stays in the return the stage writes, and stays **advisory**, since
+provenance demands nothing. What it ends is the *silent* absence.
