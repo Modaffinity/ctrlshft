@@ -88,7 +88,7 @@ because a live v1 plan tree still depends on them; `/carve` enters them at
 | [GROUND_STAGE.md](references/GROUND_STAGE.md) | B1's procedure — the decision with no third branch · the template · the freshness test · the `blocked` path |
 | [BUILD_SESSION.md](references/BUILD_SESSION.md) | The nine stages · Which superpowers skill each stage invokes · Why the plan file is named `<slug>-PLAN.md` · The between-stages loop · The orchestrator's commit, by output kind · Resume · Land, and the archive |
 | [INTERFACES.md](references/INTERFACES.md) | Output kinds · The dispatch brief · The stage return · The revision dispatch · STATE.md · The Codex prompt · The de-risk dispatch |
-| [REVIEW_ROUNDS.md](references/REVIEW_ROUNDS.md) | What a round is · Classifying a finding · The cap, and what happens at it · The advisor packet · Overflow · Cross-repo packets |
+| [REVIEW_ROUNDS.md](references/REVIEW_ROUNDS.md) | What a round is · Classifying a finding · The cycle, and what closes it · The advisor packet · Overflow · Cross-repo packets |
 | [DOCS_STAGE.md](references/DOCS_STAGE.md) | The eight items · What item 8 fixes and what it records · The DOCS.md template · What docs-graph-check.py checks |
 | [CHECKS.md](references/CHECKS.md) | The two rules behind every acceptance check this package writes: a check states what it returns when the thing IS there; a gate a correct artifact cannot pass is rescoped and reported, never waived |
 | [V1_LEGACY.md](references/V1_LEGACY.md) | v1's seven-step procedure; it links the nine v1 references |
@@ -112,6 +112,6 @@ walk above follows `.md` only.
   verifying the stage's return against disk. A subagent that edits it directly can record `done`
   disk never confirmed.
 - **Buying a fourth review round.** The cap is three rounds, no more. A fourth round is a stop
-  condition, not a retry — see [the cap](references/REVIEW_ROUNDS.md).
+  condition, not a retry — see [the review cycle](references/REVIEW_ROUNDS.md).
 - **`git add -A` in a repo carrying another surface's work.** `~/dotfiles` carries another surface's
   uncommitted work on `main`. Every commit here stages named paths only.

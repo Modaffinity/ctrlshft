@@ -45,6 +45,20 @@ starts only after P6 hands off.
 - **writes:** `plans/<slug>/BRIEF.md`, committed and tracked.
 - **must not:** leave the brief untracked.
 
+**The brief ships one dial line.** *Timidity is as bad as recklessness*, and both extremes are
+forbidden: the more load-bearing or dangerous the work, the further toward caution; the less, the
+further toward boldness — a **range**, never an endpoint. P5 writes that position into the brief in
+one line with its reason, in this form:
+
+```
+**Dial:** <position, in a phrase> — <the reason, naming what makes this work load-bearing or not>
+```
+
+A brief is **approved, not frozen**, so no gate can ever fire on this line — which is precisely why
+its shape is fixed here, at the stage that decides what a brief contains, instead of being left to
+whoever writes one. The plan that follows inherits the position, and there the freeze gate does
+check that the line exists.
+
 ### P6 — Handoff
 
 - **reads:** P5's committed, tracked brief.

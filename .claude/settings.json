@@ -166,6 +166,10 @@
           {
             "type": "command",
             "command": "\"$HOME/.claude/hooks/pod-skills.sh\""
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/plan-reprime.sh\""
           }
         ]
       }
@@ -197,6 +201,24 @@
           {
             "type": "command",
             "command": "\"$HOME/.claude/hooks/test-gate.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/plan-read-guard.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/plan-dispatch-gate.sh\""
           }
         ]
       }
@@ -250,6 +272,15 @@
             "command": "bash -c 'command -v python3 >/dev/null 2>&1 && python3 \"$HOME/.claude/hooks/feedback-memory-gate.py\" || exit 0'"
           }
         ]
+      },
+      {
+        "matcher": "Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/plan-return-stamp.sh\""
+          }
+        ]
       }
     ],
     "InstructionsLoaded": [
@@ -272,11 +303,22 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/plan-subagent-hook.sh\""
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
     "type": "command",
-    "command": "bash \"$HOME/.claude/statusline-command.sh\""
+    "command": "bash \"$HOME/.claude/hooks/plan-status-export.sh\""
   },
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true
