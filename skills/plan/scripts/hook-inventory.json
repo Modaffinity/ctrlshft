@@ -1,0 +1,113 @@
+{
+  "_comment": "One object per data row of SPEC.md § 19 — sixteen when T15 appends the wave-3 hook row. `kind` discriminates: `hook` is an (event, matcher, command) triple asserted in BOTH settings files (R151); `statusline` is not a triple and has its own shape; `path` resolves on disk. `lands` marks a row whose deliverable ships later in this release — honoured only under --allow-pending, and only until the file exists.",
+  "rows": [
+    {
+      "kind": "hook",
+      "mechanism": "M1",
+      "event": "PreToolUse",
+      "matcher": "Read",
+      "command": "\"$HOME/.claude/hooks/plan-read-guard.sh\""
+    },
+    {
+      "kind": "hook",
+      "mechanism": "M2",
+      "event": "SubagentStop",
+      "matcher": "*",
+      "command": "\"$HOME/.claude/hooks/plan-subagent-hook.sh\""
+    },
+    {
+      "kind": "hook",
+      "mechanism": "M2b",
+      "event": "PostToolUse",
+      "matcher": "Task|Agent",
+      "command": "\"$HOME/.claude/hooks/plan-return-stamp.sh\""
+    },
+    {
+      "kind": "hook",
+      "mechanism": "M5",
+      "event": "SessionStart",
+      "matcher": "*",
+      "command": "\"$HOME/.claude/hooks/plan-reprime.sh\""
+    },
+    {
+      "kind": "statusline",
+      "mechanism": "M3",
+      "command": "bash \"$HOME/.claude/hooks/plan-status-export.sh\""
+    },
+    {
+      "kind": "path",
+      "mechanism": "M4",
+      "executor": "python3",
+      "path": "<pkg>/scripts/plan-supervisor.py"
+    },
+    {
+      "kind": "path",
+      "mechanism": "M6-M7",
+      "executor": "python3",
+      "path": [
+        "<pkg>/scripts/coverage-pass.py",
+        "<pkg>/scripts/freeze-gate.py",
+        "<pod>/scripts/check_freeze_gate.sh"
+      ]
+    },
+    {
+      "kind": "path",
+      "mechanism": "M8",
+      "executor": "git-pre-commit",
+      "path": "<pod>/scripts/check_link_gate.sh",
+      "lands": "T14"
+    },
+    {
+      "kind": "path",
+      "mechanism": "M9",
+      "executor": "python3",
+      "path": "<pkg>/scripts/stage-spend.py"
+    },
+    {
+      "kind": "path",
+      "mechanism": "M10",
+      "executor": "bash",
+      "path": "<pkg>/scripts/b6-gate.sh",
+      "lands": "T15"
+    },
+    {
+      "kind": "path",
+      "mechanism": "M11-M12",
+      "executor": "python3",
+      "path": [
+        "<pkg>/scripts/predict-spend.py",
+        "<pkg>/scripts/seat-gauge.py"
+      ],
+      "lands": "T12-T13"
+    },
+    {
+      "kind": "path",
+      "mechanism": "M13",
+      "executor": "bash",
+      "path": "<pkg>/scripts/codex-run.sh"
+    },
+    {
+      "kind": "path",
+      "mechanism": "M15",
+      "executor": "python3",
+      "path": "<pkg>/scripts/resume-check.py",
+      "lands": "T11"
+    },
+    {
+      "kind": "path",
+      "mechanism": "M16",
+      "executor": "git-pre-commit",
+      "path": "<pod>/scripts/staged_worktree.sh"
+    },
+    {
+      "kind": "path",
+      "mechanism": "M14",
+      "executor": "none",
+      "path": [
+        "<pkg>/references/REVIEW_ROUNDS.md",
+        "<pkg>/references/BUILD_SESSION.md",
+        "<pkg>/references/PLANNING_SESSION.md"
+      ]
+    }
+  ]
+}

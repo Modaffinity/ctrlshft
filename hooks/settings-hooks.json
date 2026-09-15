@@ -28,6 +28,14 @@
           {
             "type": "command",
             "command": "\"$HOME/.claude/hooks/stale-branches.sh\""
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/pod-skills.sh\""
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/plan-reprime.sh\""
           }
         ]
       }
@@ -54,11 +62,20 @@
           },
           {
             "type": "command",
-            "command": "command -v python3 >/dev/null 2>&1 && python3 \"$HOME/.claude/hooks/plan-review-phase2.py\" || exit 0"
+            "command": "bash -c 'command -v python3 >/dev/null 2>&1 && python3 \"$HOME/.claude/hooks/plan-review-phase2.py\" || exit 0'"
           },
           {
             "type": "command",
             "command": "\"$HOME/.claude/hooks/test-gate.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/plan-read-guard.sh\""
           }
         ]
       }
@@ -109,7 +126,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v python3 >/dev/null 2>&1 && python3 \"$HOME/.claude/hooks/feedback-memory-gate.py\" || exit 0"
+            "command": "bash -c 'command -v python3 >/dev/null 2>&1 && python3 \"$HOME/.claude/hooks/feedback-memory-gate.py\" || exit 0'"
+          }
+        ]
+      },
+      {
+        "matcher": "Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/plan-return-stamp.sh\""
           }
         ]
       }
@@ -134,6 +160,21 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/plan-subagent-hook.sh\""
+          }
+        ]
+      }
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$HOME/.claude/hooks/plan-status-export.sh\""
   }
 }
