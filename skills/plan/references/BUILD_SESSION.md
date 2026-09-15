@@ -7,7 +7,7 @@ operator input — until B9's report or a `stop` verdict.
 
 | # | Stage | Trigger | Input | Output | Model | Exit condition |
 |---|---|---|---|---|---|---|
-| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | standard | the document exists, is under 300 lines, is tracked, and `README.md` links it · [B1's procedure](GROUND_STAGE.md) |
+| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | standard | the document exists, is under 300 lines, is tracked, and `README.md` links it · both seat-gauge readings are in the first ledger block · [B1's procedure](GROUND_STAGE.md) |
 | B2 | **Spec** | "write the spec" | `BRIEF.md` + read-pack | `plans/<slug>/SPEC.md` | strongest | brainstorming's Spec Self-Review passes; every open question the brief raised is settled |
 | B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | standard · strongest | a [Codex round](INTERFACES.md#the-codex-prompt) and a [de-risk round](INTERFACES.md#the-de-risk-dispatch) have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
 | B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere · [what a plan step carries](#what-a-plan-step-carries) · every acceptance check it writes follows [CHECKS.md](CHECKS.md) |
@@ -16,6 +16,15 @@ operator input — until B9's report or a `stop` verdict.
 | B7 | **Docs** | "run the docs stage" | the branch | `plans/<slug>/DOCS.md` + the files it changes | standard | all eight checklist items changed or confirmed with a reason |
 | B8 | **Land** | "verify and land" | the branch | a merge commit, or a stop | standard | full verification passes **and** the merge is clean **and** the post-merge docs check passes; any one failing is a stop condition · its gates follow [CHECKS.md](CHECKS.md) |
 | B9 | **Report** | "report" | `STATE.md` | the report in chat; `plans/archive/<slug>/` | standard | report delivered, folder moved, `plans/INDEX.md` row moved |
+
+**B1 also reads the meter.** A build session reads the seat gauge at session start —
+`~/dotfiles/skills/plan/scripts/seat-gauge.py` — and applies the band it prints, recording
+`unknown` when `rate_limits` is not yet populated. An `unknown` start reading is the expected shape
+of a reading taken before the harness's first API response, **not** a licence to skip it: the
+brief is the controlling document and it says the session reads the odometer at start and applies
+the band. The session then **re-reads at the first stage boundary**, and **both** readings go in the
+first ledger block, so the band the run actually routed on is readable from the record rather than
+asserted afterwards.
 
 ## Which superpowers skill each stage invokes
 
@@ -53,7 +62,13 @@ it and naming a model without measuring it is exactly the assumption `C9` forbid
 most expensive one — `subagent-driven-development/SKILL.md` says so and this spine depends on it.
 **The verb test.** *"Apply this specified list"* or *"run these and report"* → `cheap`. *"Decide"*,
 *"design"*, *"find what is wrong"* → `strongest`. Everything between → `standard`. **On real
-doubt, go bigger:** quality is never traded for spend.
+doubt, go bigger.**
+**The triad.** Every plan optimises quality, token consumption and time **together**, in that
+general order and held **marginally, never lexically** — *"for a little extra quality, a trillion
+tokens is an absolute no."* Naming two while sheltering the third is the failure mode this guards
+against, and it is why the order is a tie-breaker rather than a ranking: going bigger is right when
+the doubt is real and wrong when it buys a rounding error at three times the spend and twice the
+wall clock.
 **Turn count beats token price** (SDD's measurement, cited not restated): a cheaper model that
 takes three times the turns costs more. A tier is a floor, not a target.
 
@@ -76,6 +91,23 @@ takes three times the turns costs more. A tier is a floor, not a target.
 **Per-task model choice inside B6 is not restated here** — it is `subagent-driven-development`'s own,
 at `subagent-driven-development/SKILL.md` lines 186–218 of superpowers 6.3.0, and this section cites
 it by file and line rather than copying it.
+
+### The dial
+
+**Timidity is as bad as recklessness**, and both extremes are forbidden. The more load-bearing or
+dangerous the work, the further toward caution; the less, the further toward boldness — a **range**,
+never an endpoint. A session that gates every step behind an operator it cannot reach has failed in
+the same way as one that resolves a merge conflict on its own judgement; only the direction differs.
+
+**Every brief and plan states its dial position in one line, with the reason:**
+
+```
+**Dial:** <position, in a phrase> — <the reason, naming what makes this work load-bearing or not>
+```
+
+The freeze gate checks that the line **exists** — presence is mechanical, the judgement stays with
+the author. A brief is approved rather than frozen, so no gate fires on a brief's line; it is
+written anyway, because the plan that follows inherits the position it sets.
 
 ### The context ceiling (`C6`)
 
@@ -138,6 +170,53 @@ plan is most of why its execution controller's context reached 829k.
 
 **The one thing a prose step always copies verbatim is a template or an exact string the
 deliverable must contain byte-for-byte.** Paraphrasing those is a separate, worse defect.
+
+### The plan's task table, and its predicted spend
+
+Every plan carries one task table, in this header order exactly:
+
+```
+| # | Task | batch | route | comparable | Acceptance |
+|---|---|---|---|---|---|
+| T1 | <what it builds> | b1 \| solo | claude:opus \| codex:gpt-5.6-sol:high | r2-B5 \| none | § <n> |
+```
+
+- **`batch`** — `b<n>` for a task dispatched in a fan-out block with its batch-mates, `solo` for one
+  that commits its own paths. A batched task commits nothing: it returns its changed paths and the
+  orchestrator commits each return separately, in batch order.
+- **`route`** — `<seat>:<model>[:<effort>]`. The seat is a peer, not a junior: serious
+  implementation is as eligible for the OpenAI seat as opinion-asking is, and the route is chosen
+  per task by **fit**, bent by the week's consumption band rather than by a difficulty ceiling on
+  either seat.
+- **`comparable`** — `<corpus>-<row key>`, resolved through the plan's own key table, or `none` when
+  nothing measured matches. An id the key table does not carry, or whose row key names no row in the
+  named corpus, is a hard error and never a guess.
+
+and one predicted-spend section, in this shape:
+
+```
+## Predicted spend
+
+| task | comparable | billed est. | $ est. | min est. |
+|---|---|---|---|---|
+
+Total: $<n>, <n> min, over <n> dispatches. Rate: $0.635 per million billed tokens
+(release 2: $173.94 / 273,955,454), 31 min per dispatch (13h / 25 boundaries).
+Matched <n> of <n> tasks to a measured row.
+```
+
+Each task's return then carries one criteria row per criterion under its own acceptance heading:
+
+```
+CRITERIA: <n> of <n>
+- [<criterion-id>] <the exact command that ran> → <what it printed, one line> [PASS|FAIL]
+```
+
+`<criterion-id>` is the identifier **verbatim** as the plan writes it — `AC9-size` and `A11` are
+identifiers exactly as `AC3` is — and the trailing `[PASS]`/`[FAIL]` token is what lets a return
+gate reject a *failing* row, which free-text output cannot carry. Beside each row goes the reason
+the criterion was chosen, so a reader can tell a check that could have failed from one that could
+not.
 
 ## The between-stages loop
 

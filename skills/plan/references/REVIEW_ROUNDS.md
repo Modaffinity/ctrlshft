@@ -4,10 +4,14 @@
 
 One dispatch of one advisor over one packet, returning findings. Two kinds, both required:
 
-- **Codex round** — `ask-codex <packet directory> -- '<prompt>'`, from a subagent, **outside the
-  command sandbox** (`ask-codex` cannot initialise inside one). The prompt is
-  [The Codex prompt](INTERFACES.md#the-codex-prompt), sent verbatim. 🛑 **A blocked, missing or
-  failing `ask-codex` is a stop condition, never a reason to fall back to the MCP `codex` tool.**
+- **Codex round** — the second model reads the packet. The prompt is
+  [The Codex prompt](INTERFACES.md#the-codex-prompt), sent verbatim. **The vehicle is whichever one
+  the workstream's brief names** — the official Codex plugin where it is installed, otherwise
+  `ask-codex <packet directory> -- '<prompt>'` from a subagent **outside the command sandbox**
+  (`ask-codex` cannot initialise inside one). 🛑 **A blocked, missing or failing call to
+  whichever review vehicle is in force is a stop condition:** report the exact error verbatim and
+  end the round. The stop condition is about the round having no advisor, never about which tool
+  was reached for.
 - **De-risk round** — a subagent takes the artifact's load-bearing assumptions and **runs**, for
   each, the smallest experiment that could falsify it, in the session scratchpad, reporting what
   happened rather than what would happen. Reasoning about a probe is not running it.
@@ -19,19 +23,28 @@ orchestrator verifies every returned finding against the current artifact before
 open-findings list; one that no longer reproduces is recorded as `stale` and closed with that
 reason. Verification is a step, not a habit, because it is what kept that probe honest.
 
-**Never treat an unavailable `ask-codex` as license to use `mcp__codex__codex` instead — that
-substitution silently drops the containment the round exists to provide.**
+**Every call to a model outside this session leaves an evidence directory under
+`<pod>/evidence/codex-<mode>-<stamp>-<hash>/`, named in the round's ledger block, whatever the call
+path.** Containment is not what this rule protects and never was: the second model already runs on
+this machine and reads what this session reads, so the call path is free and the **record** is not.
+A round whose evidence directory cannot be named is an unevidenced round, and an unevidenced round
+did not happen as far as the ledger is concerned.
+
+The directory name is the one the vehicle actually writes — `codex-blind-20260913-144639Z-ef86`
+and its siblings already sit in this pod's `evidence/`. A rule pointing at a root the tool does not
+use is a rule the round it governs cannot satisfy.
 
 | Excuse | Reality |
 |---|---|
-| "`ask-codex` is unavailable, so I'll use the MCP codex tool" | That is the measured failure this rule exists for. An unavailable `ask-codex` is `VERDICT: stop` — report the exact error and end the round, never route around it. |
+| "the vehicle keeps its own logs somewhere, so that counts" | Name the directory under `<pod>/evidence/` in the ledger block, or the round is unevidenced. Where the vehicle's own logging is thin, a thin wrapper writes the directory — logging, never containment. |
 
 Red flags — stop and re-read this section if you notice any of these in your own reasoning:
 
-- the sandbox denies `ask-codex`'s state directory and `mcp__codex__codex` is sitting right there;
-- "it's basically the same model, just a different call path";
+- the round has findings to transcribe and no evidence directory to point at;
+- "it's basically the same model, just a different call path" — true, and beside the point: what is
+  required is the evidence trail, not a particular tool;
 - no operator is reachable and closing this out today feels urgent — that pressure does not change
-  what a fenced tool is fenced for.
+  what a round has to leave behind.
 
 ## Reading cannot detect a wrong fact about the machine
 
@@ -78,6 +91,11 @@ replace all of it, run once, in this order.
 | 2 | **Advisor read** | `standard` | the second model reads the artifact **together with step 1's evidence** — [the packet](#the-advisor-packet) gains the testing round's output as a file |
 | 3 | **One rewrite** | `strongest` | closes the findings; it may decline one, recorded in the artifact's own decisions table |
 | 4 | **Closure check** | `cheap` | [below](#the-closure-check) |
+
+**Step 2 is briefed with a ten-minute tool timeout.** Measured: a real `ask-codex --depth deep`
+call took **8m 9s**, and the Bash tool's two-minute default killed a first attempt at exit 143,
+leaving a partial evidence directory behind. A deep advisor read budgeted at the default is a round
+that gets killed mid-call and read as a failure it never had.
 
 Blocking findings from step 2 are closed by step 3, which is
 [The revision dispatch](INTERFACES.md#the-revision-dispatch). No further reading runs against the
@@ -138,8 +156,8 @@ Red flags — stop and re-read this section if you notice any of these in your o
 - there is no `STATE.md` yet — its absence is not permission to skip the ledger entry this section
   requires once it exists.
 
-⚠️ `evidence/` is gitignored in a CortexOS pod, so an `ask-codex` evidence folder is **not** a
-tracked record — a fresh clone does not have it. Each step's findings are written into `STATE.md`'s
+⚠️ `evidence/` is gitignored in a CortexOS pod, so an `evidence/codex-<mode>-<stamp>-<hash>/`
+directory is **not** a tracked record — a fresh clone does not have it. Each step's findings are written into `STATE.md`'s
 ledger, which is tracked, with the evidence folder named as a pointer. Otherwise the "reviewed"
 record is something a fresh clone cannot see.
 
