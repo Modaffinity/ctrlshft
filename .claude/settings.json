@@ -212,6 +212,15 @@
             "command": "\"$HOME/.claude/hooks/plan-read-guard.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME/.claude/hooks/plan-dispatch-gate.sh\""
+          }
+        ]
       }
     ],
     "Stop": [
