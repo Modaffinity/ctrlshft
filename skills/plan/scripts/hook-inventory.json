@@ -1,5 +1,5 @@
 {
-  "_comment": "One object per data row of SPEC.md § 19 — sixteen when T15 appends the wave-3 hook row. `kind` discriminates: `hook` is an (event, matcher, command) triple asserted in BOTH settings files (R151); `statusline` is not a triple and has its own shape; `path` resolves on disk. `lands` marks a row whose deliverable ships later in this release — honoured only under --allow-pending, and only until the file exists.",
+  "_comment": "One object per data row of SPEC.md § 19 — sixteen, the last being the wave-3 `PreToolUse`/`Agent` row T15 appended. That row is deliberately NOT wired into either settings file until after T18 (R181): once wired it denies any `Agent` dispatch whose prompt carries a `TASK: T<n>` line while `approved:` is not an ISO date, and this plan's `approved: waived-R133` never is, so wiring it mid-release would make the plan's own remaining tasks undispatchable. `kind` discriminates: `hook` is an (event, matcher, command) triple asserted in BOTH settings files (R151); `statusline` is not a triple and has its own shape; `path` resolves on disk. `lands` marks a row whose deliverable ships later in this release — honoured only under --allow-pending, and only until the file exists.",
   "rows": [
     {
       "kind": "hook",
@@ -54,8 +54,7 @@
       "kind": "path",
       "mechanism": "M8",
       "executor": "git-pre-commit",
-      "path": "<pod>/scripts/check_link_gate.sh",
-      "lands": "T14"
+      "path": "<pod>/scripts/check_link_gate.sh"
     },
     {
       "kind": "path",
@@ -67,8 +66,10 @@
       "kind": "path",
       "mechanism": "M10",
       "executor": "bash",
-      "path": "<pkg>/scripts/b6-gate.sh",
-      "lands": "T15"
+      "path": [
+        "<pkg>/scripts/b6-gate.sh",
+        "<pkg>/scripts/dispatch-gate.py"
+      ]
     },
     {
       "kind": "path",
@@ -106,6 +107,13 @@
         "<pkg>/references/BUILD_SESSION.md",
         "<pkg>/references/PLANNING_SESSION.md"
       ]
+    },
+    {
+      "kind": "hook",
+      "mechanism": "M10b",
+      "event": "PreToolUse",
+      "matcher": "Agent",
+      "command": "\"$HOME/.claude/hooks/plan-dispatch-gate.sh\""
     }
   ]
 }
