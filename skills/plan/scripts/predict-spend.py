@@ -389,11 +389,32 @@ def parse_args(argv):
     return parser.parse_args(argv)
 
 
+def find_pod_root(start):
+    """The pod root, found by walking up for the repository marker rather than by counting
+    directories. A fixed `dirname(dirname(plan_dir))` assumes the plan lives at
+    `<pod>/plans/<slug>/` and silently resolves to `<pod>/plans` once the workstream is
+    retired to `<pod>/plans/archive/<slug>/` — every path built on it then gains a doubled
+    `plans/` segment. Retiring is what `plans/CLAUDE.md` does to every workstream, so the
+    fixed form breaks on every archived plan, which is all of them eventually. MEASURED at
+    release 3's own archive move: `plans/plans/archive/plan-v2-release-2/notes/SPEND.md`,
+    FileNotFoundError, four acceptance tests red."""
+    here = os.path.abspath(start)
+    while True:
+        if os.path.isdir(os.path.join(here, ".git")):
+            return here
+        parent = os.path.dirname(here)
+        if parent == here:
+            # No marker: fall back to the historical assumption rather than crashing, so a
+            # plan outside a git repository behaves exactly as it did before this fix.
+            return os.path.dirname(os.path.dirname(os.path.abspath(start)))
+        here = parent
+
+
 def main(argv=None):
     args = parse_args(argv if argv is not None else sys.argv[1:])
     plan_path = os.path.abspath(args.plan)
     plan_dir = os.path.dirname(plan_path)
-    pod_root = os.path.dirname(os.path.dirname(plan_dir))
+    pod_root = find_pod_root(plan_dir)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     try:
         rows, matched, median, median_rows = build_table(plan_path, pod_root, plan_dir,
