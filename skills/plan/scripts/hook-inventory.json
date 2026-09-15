@@ -77,8 +77,7 @@
       "path": [
         "<pkg>/scripts/predict-spend.py",
         "<pkg>/scripts/seat-gauge.py"
-      ],
-      "lands": "T12-T13"
+      ]
     },
     {
       "kind": "path",
@@ -90,8 +89,7 @@
       "kind": "path",
       "mechanism": "M15",
       "executor": "python3",
-      "path": "<pkg>/scripts/resume-check.py",
-      "lands": "T11"
+      "path": "<pkg>/scripts/resume-check.py"
     },
     {
       "kind": "path",
