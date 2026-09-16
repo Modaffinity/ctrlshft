@@ -1,8 +1,11 @@
 <!-- ARCHITECTURE: This is CLAUDE.base.md — the git-tracked template.
-     bootstrap.sh copies this to CLAUDE.md and appends local instruction @-refs.
+     bootstrap.sh copies this to CLAUDE.md and appends local instruction refs.
      CLAUDE.md is gitignored because it contains machine-specific local refs.
      Edit THIS file, then run bootstrap.sh to regenerate CLAUDE.md.
-     Only CLAUDE.md is symlinked to ~/.claude/ and read by Claude Code at runtime. -->
+     Only CLAUDE.md is symlinked to ~/.claude/ and read by Claude Code at runtime.
+     `@path` imports load at launch unconditionally (Claude Code docs, memory page), so only
+     always-on files use `@`. Conditional files are named as plain paths and read with the Read
+     tool when their trigger holds — an `@` there would load them into every session. -->
 
 <source-of-truth>
 ~/dotfiles/ is the single source of truth for all agent configuration.
@@ -15,15 +18,19 @@ Always read global rule instructions first and confirm that you have done so by 
 
 @~/dotfiles/global.instructions.md
 
+## Conditional Instructions — read on demand
+
+The files below are NOT loaded at launch. When a trigger holds, read the named file with the Read tool before acting, and output the acknowledgement line the file asks for.
+
 ## Workspace-Detected Instructions
 
-Check the $ACTIVE_CONTEXTS environment variable (set by ~/dotfiles/bin/detect-context.sh). Load instructions matching each active context:
+Check the $ACTIVE_CONTEXTS environment variable (set by ~/dotfiles/bin/detect-context.sh). Read the instructions matching each active context:
 
-- `nextjs` → @~/dotfiles/instructions/nextjs.instructions.md
-- `php` or `laravel` → @~/dotfiles/instructions/php.instructions.md
-- `sanity` → @~/dotfiles/instructions/sanity.instructions.md
+- `nextjs` → `~/dotfiles/instructions/nextjs.instructions.md`
+- `php` or `laravel` → `~/dotfiles/instructions/php.instructions.md`
+- `sanity` → `~/dotfiles/instructions/sanity.instructions.md`
 
-If `$ACTIVE_CONTEXTS` is not set, fall back to checking for file signatures (`next.config.*`, `composer.json`, `sanity.config.*`, etc.) and load the matching instructions above.
+If `$ACTIVE_CONTEXTS` is not set, fall back to checking for file signatures (`next.config.*`, `composer.json`, `sanity.config.*`, etc.) and read the matching instructions above.
 
 Output "Active Context: [list of detected contexts]." to chat (e.g. "Active Context: nextjs, sanity."). If no contexts were detected, output "Active Context: none."
 
@@ -37,20 +44,16 @@ Output "Active Context: [list of detected contexts]." to chat (e.g. "Active Cont
 
 ## Service-Triggered Instructions
 
-If working with Google Docs, Sheets, or Slides, also read:
-@~/dotfiles/instructions/google-docs.instructions.md
+If working with Google Docs, Sheets, or Slides, read `~/dotfiles/instructions/google-docs.instructions.md`.
 
-If working with Sentry, also read:
-@~/dotfiles/instructions/sentry.instructions.md
+If working with Sentry, read `~/dotfiles/instructions/sentry.instructions.md`.
 
-If the HUD daemon is running (check: `curl -sf http://localhost:7823/api/state > /dev/null 2>&1`), also read:
-@~/dotfiles/instructions/hud.instructions.md
+If the HUD daemon is running (check: `curl -sf http://localhost:7823/api/state > /dev/null 2>&1`), read `~/dotfiles/instructions/hud.instructions.md`.
 
 ## Task-Triggered Instructions
 
-If working on CSS, styling, or frontend UI, also read:
-@~/dotfiles/instructions/css.instructions.md
+If working on CSS, styling, or frontend UI, read `~/dotfiles/instructions/css.instructions.md`.
 
 ## About Local Instructions
 
-`bootstrap.sh` auto-appends `@`-references for any `*.instructions.md` files found in `instructions/_local/`. Files with `auto-load: false` in their frontmatter are registered as task-triggered instead — read them only when the task matches their description. Run `bootstrap.sh` after adding new local instruction files.
+`bootstrap.sh` auto-appends `@`-references for any `*.instructions.md` files found in `instructions/_local/`. Files with `auto-load: false` in their frontmatter are registered as task-triggered instead, by plain path — read them only when the task matches their description. Run `bootstrap.sh` after adding new local instruction files.

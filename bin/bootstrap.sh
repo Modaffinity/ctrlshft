@@ -201,7 +201,7 @@ if [[ ${#_local_conditional[@]} -gt 0 ]]; then
         _fname=$(basename "$f")
         # Extract description from frontmatter
         _desc=$(awk '/^description:/{sub(/^description:[[:space:]]*"?/,""); sub(/"?[[:space:]]*$/,""); print; exit}' "$f")
-        printf -- '- %s — @~/dotfiles/instructions/_local/%s\n' "${_desc:-no description}" "$_fname" >> "$DOTFILES/CLAUDE.md"
+        printf -- '- %s — `~/dotfiles/instructions/_local/%s`\n' "${_desc:-no description}" "$_fname" >> "$DOTFILES/CLAUDE.md"
     done
     green "  Registered ${#_local_conditional[@]} task-triggered local instruction(s)"
 fi
