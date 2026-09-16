@@ -5,13 +5,14 @@
 One dispatch of one advisor over one packet, returning findings. Two kinds, both required:
 
 - **Codex round** — the second model reads the packet. The prompt is
-  [The Codex prompt](INTERFACES.md#the-codex-prompt), sent verbatim. **The vehicle is whichever one
-  the workstream's brief names** — the official Codex plugin where it is installed, otherwise
-  `ask-codex <packet directory> -- '<prompt>'` from a subagent **outside the command sandbox**
-  (`ask-codex` cannot initialise inside one). 🛑 **A blocked, missing or failing call to
-  whichever review vehicle is in force is a stop condition:** report the exact error verbatim and
-  end the round. The stop condition is about the round having no advisor, never about which tool
-  was reached for.
+  [The Codex prompt](INTERFACES.md#the-codex-prompt), sent verbatim. **The vehicle is always the
+  official OpenAI Codex plugin** — `node <plugin>/scripts/codex-companion.mjs task --fresh
+  '<prompt>'` (or the `codex:rescue` agent), run **outside the command sandbox**, because the Codex
+  runtime writes `~/.codex` and the sandbox denies it. The operator's standing order, 2026-09-16:
+  never `ask-codex`, never the `mcp__codex__codex` tool, for any Codex call this skill makes. Check
+  readiness first with `codex-companion.mjs setup --json` (`ready: true`); `codex: not found` is
+  fixed by `npm install -g @openai/codex`, not by switching vehicle. 🛑 **A blocked, missing or
+  failing plugin call is a stop condition:** report the exact error verbatim and end the round.
 - **De-risk round** — a subagent takes the artifact's load-bearing assumptions and **runs**, for
   each, the smallest experiment that could falsify it, in the session scratchpad, reporting what
   happened rather than what would happen. Reasoning about a probe is not running it.

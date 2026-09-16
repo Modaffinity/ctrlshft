@@ -79,7 +79,7 @@ takes three times the turns costs more. A tier is a floor, not a target.
 | B1 Ground | `standard` | applies a specified procedure — `GROUND_STAGE.md` makes it mechanical |
 | B2 Spec | `strongest` | decide and design; the brief names it |
 | B3/B5 Coverage pass | `standard` | *finds what is absent* — a list walk with judgement at each row |
-| B3/B5 Codex round | `standard` | assembles a packet, shells `ask-codex`, transcribes findings; Codex does the reasoning |
+| B3/B5 Codex round | `standard` | assembles a packet, calls the official Codex plugin (`codex-companion.mjs task`), transcribes findings; Codex does the reasoning |
 | B3/B5 de-risk round | `strongest` | designs falsifying experiments; the brief names it |
 | B4 Plan | `strongest` | the brief names it |
 | B6 controller | `strongest` | dispatches, judges reports, rules |
