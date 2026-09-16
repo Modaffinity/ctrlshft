@@ -7,7 +7,7 @@ operator input — until B9's report or a `stop` verdict.
 
 | # | Stage | Trigger | Input | Output | Model | Exit condition |
 |---|---|---|---|---|---|---|
-| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | standard | the document exists, is under 300 lines, is tracked, and `README.md` links it · both seat-gauge readings are in the first ledger block · [B1's procedure](GROUND_STAGE.md) |
+| B1 | **Ground** | (the handoff) | `BRIEF.md` | `ARCHITECTURE.md` created or confirmed fresh | standard | the document exists, is under 300 lines, is tracked, and `README.md` links it · both seat-gauge readings are in the first ledger block · B1's own dispatch recorded `"requestShape":"foreground"` ([why](#the-between-stages-loop)) · [B1's procedure](GROUND_STAGE.md) |
 | B2 | **Spec** | "write the spec" | `BRIEF.md` + read-pack | `plans/<slug>/SPEC.md` | strongest | brainstorming's Spec Self-Review passes; every open question the brief raised is settled |
 | B3 | **Spec review** | "review the spec" | `SPEC.md` + packet | findings, returned | standard · strongest | a [Codex round](INTERFACES.md#the-codex-prompt) and a [de-risk round](INTERFACES.md#the-de-risk-dispatch) have both run against the artifact's current version with no blocking finding open, or the cap reached and every residual ruled |
 | B4 | **Plan** | "write the plan" | `SPEC.md` | `plans/<slug>/<slug>-PLAN.md` | strongest | `writing-plans`' Self-Review passes; no placeholder anywhere · [what a plan step carries](#what-a-plan-step-carries) · every acceptance check it writes follows [CHECKS.md](CHECKS.md) |
@@ -117,7 +117,7 @@ Three bands, read against the orchestrator's own context at each stage boundary:
 |---|---|---|
 | under 250,000 | nothing | measured this run: a heavy artifact-writing stage peaked at 148,233 |
 | 250,000 – 500,000 | a **blocking** Finding on the *next* stage's ledger block, closed by handing over by file instead of by paste, or by a Ruling naming what made it necessary | headroom above the observed heavy case, well below the failure |
-| over 500,000 | `stop` — the run is reproducing release 1's failure and spending the allowance to do it | release 1's controller reached **829k** |
+| over 500,000 | a **blocking** Finding: hand the rest over by file to a fresh session. **Never a `stop` where stopping would cost quality** — the operator's order, 2026-09-16: quality outranks tokens | release 1's controller reached **829k** |
 
 The thresholds are a first calibration from two measurements, and the run reports its actual figures
 so a later release can tighten them with data rather than with judgement.
@@ -267,7 +267,16 @@ After every stage return, the orchestrator does exactly this, in order:
 7. **Dispatch the next stage.**
 
    **Dispatch blocking, and fan out in one block.** Every stage and task dispatch passes
-   `run_in_background: false`, so the call returns the child's result inside the same turn. When
+   `run_in_background: false`, so the call returns the child's result inside the same turn.
+   **That parameter only exists with fork mode off.** In an interactive session fork mode is on by
+   default and every subagent is backgrounded whatever the dispatch asks — measured 2026-09-16,
+   both release 4 dispatches recorded `"requestShape":"background"`. The fix is the environment
+   variable `CLAUDE_CODE_FORK_SUBAGENT=0`, set in the pod's `.claude/settings.json` `env` block and
+   read at launch (verified in Claude Code 2.1.273's binary; with it off, a dispatch recorded
+   `"requestShape":"foreground"`). **B1 proves it on disk:** after its own dispatch returns,
+   `<session transcript dir>/subagents/agent-*.meta.json` for that dispatch must say
+   `"requestShape":"foreground"`. `background` there is a `stop` — name the missing setting, and
+   the operator relaunches the session after adding it. When
    several children are independent, issue **all** of their dispatches as multiple tool calls in a
    **single** message: they run concurrently and all return within that turn. **Never dispatch in the
    background and then end the turn** — a turn that ends while children are live is the stall, and
