@@ -83,6 +83,23 @@ dispatch states the pod's path explicitly, says that the skill's own default dif
 convention wins; a spine that inherited the skill's default would file every workstream's prior-art
 scan where the pod's index cannot reach it.
 
+🛑 **Pass `--stdout` and diff; never let `build-index.sh` write.** Its default mode is
+`cp "$tmp" "$R/INDEX.md"` — it replaces the whole table with a projection of every doc's frontmatter.
+A pod whose index is hand-curated loses every hand-written row to that one command. Measured in
+plan-skill on 2026-09-16: 48 docs on disk against 44 rows, 20 of which disagreed with their own
+document's frontmatter, so a blind regeneration would have blanked two rows outright. Add the new
+row by hand **in the exact text the generator emits for it** (`build-index.sh --stdout <root> |
+grep '^| <topic>'`), so the stage adds no drift without rewriting anyone else's. Where the pod's own
+`research/CLAUDE.md` says rows are hand-maintained and the skill's `check-surface.sh` asserts I0
+(*"index regeneration no-op"*), that contradiction is the pod's to resolve — not P3's to resolve by
+overwriting.
+
+⚠️ **`check-surface.sh` calls `mktemp`, which the command sandbox denies.** It fails with
+`mkstemp failed … Operation not permitted` and then `FATAL: build-index.sh failed`, which looks like
+a defect in the research and is not one. Run it with the sandbox off — the same caveat the pod's
+`ARCHITECTURE.md` already carries for `check-plan-surface.sh`. Reading it in `--stdout` mode first
+confirms it only diffs and never writes.
+
 **Commit at P5 only, not P3 and P4.** The brief's "commit per stage" rule is implemented for P5
 alone. The planning session is operator-led and live — an uncommitted intermediate from P3 (scan) or
 P4 (grill) stays visible to the human in the room — while the build session's stages are the ones
