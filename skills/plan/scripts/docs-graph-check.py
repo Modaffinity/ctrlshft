@@ -180,6 +180,12 @@ def size_budget(rel, profile, start):
     base = os.path.basename(rel)
     if base == "ARCHITECTURE.md":
         return 300
+    if base == "CONTEXT.md":
+        # A glossary grows by one entry every time a release names something, so it is the one
+        # root document whose length is a function of how much work the pod has done rather than
+        # of how well it is written. Raised from the 200-line root budget on 2026-09-16, when
+        # plan v4's grill added three terms and landed it at exactly 200 of 200.
+        return 300
     if os.sep not in rel:            # any root-level .md, README.md included
         return 200
     if base == "INDEX.md":           # any */INDEX.md
