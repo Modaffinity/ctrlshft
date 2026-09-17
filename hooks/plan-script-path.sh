@@ -82,8 +82,13 @@ plan_script() {
     [ -h "$_ps_ptr" ] && { echo "$_ps_deployed"; return 0; }
     # The WHOLE file must be one hash line. Reading only the first line accepted a valid line
     # followed by anything at all, which is not what "a hash and nothing else" means.
+    # Exactly 65 bytes: 64 hex plus one newline. A line count is not enough — `/bin/sh` silently
+    # DROPS NUL bytes from command substitution, so a pointer of `deadbeef<NUL>` was one line,
+    # read back as `deadbeef`, and passed the hex check. Byte count sees what the shell cannot.
+    [ "$(wc -c < "$_ps_ptr" 2>/dev/null | tr -d ' ')" = "65" ] || { echo "$_ps_deployed"; return 0; }
     [ "$(wc -l < "$_ps_ptr" 2>/dev/null | tr -d ' ')" = "1" ] || { echo "$_ps_deployed"; return 0; }
     _ps_seal_id="$(tr -d '\n' < "$_ps_ptr" 2>/dev/null)"
+    [ "${#_ps_seal_id}" = 64 ] || { echo "$_ps_deployed"; return 0; }
     case "$_ps_seal_id" in
         ""|*[!0-9a-f]*) echo "$_ps_deployed"; return 0 ;;
     esac
@@ -99,8 +104,11 @@ plan_script() {
         "$_ps_seal_root"/*) ;;
         *) echo "$_ps_deployed"; return 0 ;;
     esac
-    # Resolved, not lexical: the hook opens this path a moment later, and an intermediate
-    # directory that could still be swapped is a check/use race.
+    # The RESOLVED pathname, so the answer does not depend on symlinks that were followed during
+    # checking. ⚠️ This does NOT close the check/use race, and an earlier comment claiming it did
+    # was wrong: a resolved path is still a pathname, and anyone who can write the seal root can
+    # rename the directory between this line and the hook's `python3`. That is inside the trust
+    # root the header describes and `PSK-OL-09` records; it is not defended against here.
     echo "$_ps_realdir/$(basename "$_ps_workshop")"
 }
 

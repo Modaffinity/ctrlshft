@@ -35,7 +35,10 @@ PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
 # except one line of stdout.
 plan_script() {
     _deployed="${HOOK_DIR%/hooks}/skills/plan/scripts/$1"
-    _cand="$(sh "$HOOK_DIR/plan-script-path.sh" "$1" "$PWD" 2>/dev/null)" || _cand=""
+    # Pass HOOK_DIR explicitly. Depending on the resolver deriving it from `$0` meant that
+    # breaking that derivation disabled sealed resolution in production while every unit
+    # test — which injects the argument — stayed green.
+    _cand="$(sh "$HOOK_DIR/plan-script-path.sh" "$1" "$PWD" "$HOOK_DIR" 2>/dev/null)" || _cand=""
     if [ -n "$_cand" ] && [ -f "$_cand" ]; then echo "$_cand"; else echo "$_deployed"; fi
 }
 # The pod that BUILDS this skill runs its own copy; everyone else runs the deployed one, and
