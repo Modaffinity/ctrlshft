@@ -7,8 +7,24 @@
 #       ~/.plan-guard/boundary/<session_id>.jsonl, which is the live, harness-
 #       executed signal the supervisor bands on (§ 4.2);
 #   (c) liveness — a supervisor nobody started protects nothing, so its ABSENCE blocks
-#       the stop rather than passing quietly (§ 4.3a). An absent state file blocks too;
-#       that is intended and is not softened here.
+#       the stop rather than passing quietly (§ 4.3a).
+#
+# WHICH WORKSTREAMS JOB (c) COVERS COMES FROM THE SUPERVISOR, NOT FROM THE REPOSITORY.
+# Until 2026-09-17 both this hook and the PostToolUse net answered that by reading
+# `plans/*/STATE.md` out of the working directory — which is the untrusted repository, the
+# very thing being gated. Eight review rounds each found a bypass or a denial of service in
+# that code, and they were all one shape: a pipe that hung the open, a symlink to /dev/zero
+# that never ended, two different size caps that hid a workstream, a CR-only header that hid
+# one in 23 bytes, a hundred symlinks to one big file, and `guard: off` written by the
+# repository itself. A scope taken from the thing being gated cannot be made safe by parsing
+# it more carefully.
+#
+# So the supervisor now REGISTERS its pod in ~/.plan-guard/state/, and `registrations()`
+# reads that. Nothing in job (c) opens a file the repository controls. Registration creates
+# the obligation and outlives the supervisor — a dead heartbeat still blocks, which is the
+# case this gate exists for — and only `plan-supervisor.py --unregister` lifts it, replacing
+# the `guard: off` line that used to sit inside the gated tree. An UNREGISTERED directory is
+# not doing plan work and is not gated by (c); job (a) still runs there, unconditionally.
 #
 # Two behaviours that are measured rather than chosen, and both are load-bearing:
 #
@@ -116,10 +132,8 @@ cat > "$PAYLOAD" || { echo "RETURN-GATE: BLOCKED — cannot write the payload" >
 
 # Jobs (b) and (c). One line on stdout: SKIP, OK, or "BLOCK <message>".
 VERDICT="$("$PLAN_PY" $PLAN_PY_ISO - "$PAYLOAD" <<'PY'
-import hashlib
 import json
 import os
-import stat
 import sys
 import time
 from datetime import datetime
@@ -131,98 +145,51 @@ SKEW = 60.0             # a heartbeat may sit slightly in the future; beyond thi
                         # command substitution, and bash mis-parses a lone quote in it.)
 
 
-FRONTMATTER_CAP = 1 << 20       # a real STATE.md header is a few hundred bytes
+def registrations(home, cwd):
+    """Every workstream a supervisor has REGISTERED whose pod contains `cwd`.
 
+    This replaces reading `plans/*/STATE.md` out of the working directory, and the change is
+    the point rather than an optimisation. The working directory is an untrusted repository —
+    it is the thing being gated — and deriving the gate's SCOPE from it left no safe direction:
+    fail open on a malformed header and the repository hides its own workstream; fail closed and
+    any repository stops every subagent return by committing one absurd file. Eight review rounds
+    produced a bypass or a denial of service in that code every single time, and they were all
+    one shape. PSK-OL-12.
 
-def frontmatter(path):
-    """The leading `---` block as a dict. Parsed as frontmatter, never grepped: a ledger
-    that quotes the words `session: build` in prose is not a live build workstream.
+    So the obligation is now recorded where the gated repository cannot write: the supervisor
+    stamps `pod` into `~/.plan-guard/state/`, and this reads that. Nothing here opens a file the
+    repository controls, which is why a pipe, a symlink to /dev/zero, an oversized header, a
+    CR-only header and a hundred symlinks to one big file are not defended against one by one —
+    the code that could be hurt by them is gone.
 
-    This path is REPOSITORY-CONTROLLED, which the plain `open()` here ignored until
-    2026-09-17. A FIFO committed at `plans/x/STATE.md` blocked the open forever and a symlink
-    to `/dev/zero` never reached EOF, so a repository could hang or exhaust the hook before any
-    gate ran — a denial of service needing nothing but a file in the tree.
-
-    `lstat` then `open` was the first fix and it was still a RACE: the file can become a FIFO
-    between the two. Opening with O_NONBLOCK returns immediately on a FIFO instead of waiting
-    for a writer, and the regular-file test is made on the descriptor actually opened, so there
-    is no window between the check and the use. O_NOFOLLOW restores what dropping `lstat` gave
-    away: `open` follows symlinks, so a hundred `plans/*/STATE.md` links to one 1 MiB file made
-    every hook invocation read it a hundred times — a tiny repository buying gigabytes of I/O.
-    Refusing the link in the open itself is atomic, which `lstat` never was.
-
-    ⚠️ The cap fails OPEN, deliberately. A `---` header that never terminates inside 1 MiB
-    makes this return `{}`, so that workstream is not seen as live and its liveness is not
-    checked. Treating it as live instead would hand any repository a way to BLOCK every
-    subagent return by committing one absurd file, and a denial of service on the operator is
-    a failure in the same threat model. The loss in this direction is bounded — a repository
-    hiding its OWN workstream from the supervisor gate, with the return gate still running —
-    and it costs a header a thousand times larger than any real one.
+    Registration creates the obligation and OUTLIVES the supervisor: a state file with a dead
+    heartbeat still means work here must be supervised, which is exactly the case the gate
+    exists for. Only `--unregister` lifts it.
     """
+    folder = os.path.join(home, ".plan-guard", "state")
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
-    except OSError:
-        return {}
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
-            return {}
-        want = min(info.st_size, FRONTMATTER_CAP) or FRONTMATTER_CAP
-        buf = b""
-        while len(buf) < want:
-            block = os.read(fd, want - len(buf))
-            if not block:
-                break
-            buf += block
-    except OSError:
-        return {}
-    finally:
-        os.close(fd)
-    # Universal newlines, explicitly. The text reader this replaced normalised CR and CRLF
-    # to LF for free; splitting raw bytes on "\n" alone made `---\rsession: build\r---\r`
-    # parse as nothing, so a live workstream stopped being live and its supervisor stopped
-    # being required — a liveness bypass in a 23-byte ordinary file, introduced by the
-    # fix for the FIFO hang. Not `splitlines()`, which also breaks on \x0b, \x1c and
-    # \u2028 and would split lines the old reader kept whole.
-    text = buf.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
-    lines = text.split("\n")
-    if not lines or lines[0].rstrip("\r") != "---":
-        return {}
-    out = {}
-    for line in lines[1:]:
-        if line.strip() == "---":
-            return out
-        key, sep, value = line.rstrip("\r").partition(":")
-        if sep:
-            out[key.strip()] = value.strip()
-    return {}
-
-
-def repo_root(cwd):
-    path = os.path.realpath(cwd)
-    while True:
-        if os.path.exists(os.path.join(path, ".git")):
-            return path
-        parent = os.path.dirname(path)
-        if parent == path:
-            return None
-        path = parent
-
-
-def live_slugs(root):
-    """Every live build workstream in `root` — § 3.1's discriminator, reused."""
-    plans = os.path.join(root, "plans")
-    try:
-        names = sorted(os.listdir(plans))
+        names = sorted(os.listdir(folder))
     except OSError:
         return []
+    here = os.path.realpath(cwd)
     out = []
     for name in names:
-        if name == "archive":
+        if not name.endswith(".json"):
             continue
-        meta = frontmatter(os.path.join(plans, name, "STATE.md"))
-        if meta.get("session") == "build" and meta.get("guard") != "off":
-            out.append(name)
+        try:
+            with open(os.path.join(folder, name), encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        pod = data.get("pod")
+        if not isinstance(pod, str) or not pod:
+            continue
+        pod = os.path.realpath(pod)
+        if here == pod or here.startswith(pod + os.sep):
+            out.append({"slug": data.get("slug") or name[:-len(".json")],
+                        "heartbeat": data.get("heartbeat"), "pod": pod})
     return out
 
 
@@ -275,53 +242,19 @@ if payload.get("stop_hook_active"):
     print("SKIP")
     sys.exit(0)
 
-# (c) liveness
-root = repo_root(payload.get("cwd") or os.getcwd())
-for slug in (live_slugs(root) if root else []):
-    # Keyed by repository AND slug. On slug alone the heartbeat was a GLOBAL name: two
-    # checkouts both holding a live workstream of the same name shared one file, so a
-    # supervisor watching the first satisfied this gate in the second. The digest must match
-    # plan-supervisor.py state_name() and plan-return-stamp.sh exactly.
-    #
-    # THE UNKEYED NAME IS STILL READ, and that is the dev/prod split rather than backward
-    # compatibility. These hooks are GLOBAL — one copy fires in every session on this machine —
-    # while the supervisor is versioned per pod: this pod runs the workshop copy, every other
-    # pod runs the released one, which writes the old name. Reading only the new name would have
-    # blocked every subagent return in every other pod from the moment these hooks landed.
-    # The fallback carries the old collision risk for pods still on the released supervisor,
-    # exactly as before and no worse; it protects nothing less than it did yesterday, and it
-    # goes dead of its own accord when release 4 is promoted.
-    # THE WHOLE SLUG REACHES THE DIGEST. Truncating it in the filename alone made two
-    # slugs sharing a 120-character prefix produce the identical name, so the second
-    # workstream consumed the heartbeat of the first — a collision introduced by the fix
-    # for a collision. (No apostrophe in this comment on purpose: the block sits inside a
-    # command substitution, and bash mis-parses a lone quote there. Sixth time today.)
-    # The name after it is a LABEL for the operator reading this
-    # directory, cut in BYTES because a filesystem limit is bytes: 110 accented
-    # characters are a legal 220-byte directory name that character truncation left
-    # untouched and overflowed a 255-byte name anyway. Suffix is 39 bytes, so 96 + 39
-    # leaves room. `fsencode` throughout: POSIX paths and names are bytes, and
-    # `.encode("utf-8")` raises on the ones realpath returns with surrogate escapes.
-    digest = hashlib.sha256(os.fsencode(os.path.realpath(root)) + b"\0"
-                            + os.fsencode(slug)).hexdigest()[:32]
-    label = os.fsencode(slug)[:96].decode("utf-8", "ignore")
-    folder = os.path.join(home, ".plan-guard", "state")
-    beat = None
-    for name in ("%s--%s.json" % (label, digest), "%s.json" % slug):
-        try:
-            with open(os.path.join(folder, name), encoding="utf-8") as fh:
-                beat = json.load(fh).get("heartbeat")
-            break
-        except (OSError, ValueError):
-            continue
+# (c) liveness — over REGISTERED workstreams, never over the repository.
+for reg in registrations(home, payload.get("cwd") or os.getcwd()):
+    beat = reg["heartbeat"]
     seconds = age(beat)
     # A RANGE, not just an upper bound. JSON permits NaN and Python parses it, and every
     # comparison against NaN is False — so `seconds > WINDOW` was False and a heartbeat of NaN
     # passed liveness. A far-future stamp gives a large negative age and passed the same way.
     # Fail-closed means the age must be a finite number inside an explicit window.
     if seconds is None or seconds != seconds or seconds > WINDOW or seconds < -SKEW:
-        print("BLOCK PLAN-SUPERVISOR: not running (no heartbeat since %s) — start it "
-              "before continuing." % ("never" if beat is None else beat))
+        print("BLOCK PLAN-SUPERVISOR: %s is registered but its supervisor is not running "
+              "(no heartbeat since %s) — start it, or run plan-supervisor.py --unregister "
+              "--slug %s to lift the requirement."
+              % (reg["slug"], "never" if beat is None else beat, reg["slug"]))
         sys.exit(0)
 print("OK")
 PY
