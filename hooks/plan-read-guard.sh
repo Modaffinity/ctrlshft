@@ -13,5 +13,10 @@
 # visible in the guard's own stderr rather than as a broken session.
 set -uo pipefail
 
-python3 "${HOME}/dotfiles/skills/plan/scripts/read-guard.py" || true
+HOOK_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
+. "$HOOK_DIR/plan-script-path.sh"
+# Was a hardcoded ~/dotfiles path, which defeated the package's own location derivation and
+# pinned this guard to the deployed copy even in the pod that builds it.
+python3 "$(plan_script read-guard.py)" || true
 exit 0

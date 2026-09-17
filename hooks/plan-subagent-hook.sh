@@ -27,7 +27,11 @@
 set -uo pipefail
 
 HOOK_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GATE="${HOOK_DIR%/hooks}/skills/plan/scripts/return-gate.py"
+PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
+. "$HOOK_DIR/plan-script-path.sh"
+# The pod that BUILDS this skill runs its own copy; everyone else runs the deployed one, and
+# any doubt falls back to deployed. See plan-script-path.sh.
+GATE="$(plan_script return-gate.py)"
 
 ROOT="${TMPDIR:-/tmp}/plan-subagent-$$"
 mkdir -p "$ROOT" || exit 0

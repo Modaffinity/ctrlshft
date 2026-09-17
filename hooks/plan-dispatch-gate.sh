@@ -18,5 +18,7 @@
 set -uo pipefail
 
 HOOK_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-python3 "${HOOK_DIR%/hooks}/skills/plan/scripts/dispatch-gate.py" || true
+PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
+. "$HOOK_DIR/plan-script-path.sh"
+python3 "$(plan_script dispatch-gate.py)" || true
 exit 0
