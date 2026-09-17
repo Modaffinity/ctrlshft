@@ -57,7 +57,12 @@ set -uo pipefail
 
 HOOK_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
-. "$HOOK_DIR/plan-script-path.sh"
+# Guarded: a missing, half-written or syntactically broken resolver must not take down
+# every session on this machine. If sourcing does not define plan_script, fall back to the
+# deployed copy — the behaviour that existed before the resolver did.
+[ -r "$HOOK_DIR/plan-script-path.sh" ] && . "$HOOK_DIR/plan-script-path.sh" 2>/dev/null || true
+command -v plan_script >/dev/null 2>&1 || \
+    plan_script() { echo "${HOOK_DIR%/hooks}/skills/plan/scripts/$1"; }
 GATE="$(plan_script return-gate.py)"
 
 ROOT="${TMPDIR:-/tmp}/plan-return-stamp-$$"

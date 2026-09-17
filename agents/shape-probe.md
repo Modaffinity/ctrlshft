@@ -23,8 +23,10 @@ git hooks. A probe that mutates state is not a probe.
 
 Two guards, deliberately independent:
 
-- `omitClaudeMd: true` removes the user, project and local `CLAUDE.md` files that told it to act.
-  This is the guard doing the real work — measured at ~96% of that child's context.
+- `omitClaudeMd: true` removes the user, project and local `CLAUDE.md` files that told it to
+  act. The two runs differed by ~96% of the child's input tokens (71,406 -> 2,564), but they
+  also differed in agent type, turn cap and prompt, so treat that number as the observed gap
+  between the two configurations, not as an isolated measurement of `omitClaudeMd` alone.
 - `maxTurns: 2` bounds it structurally: two round trips cannot become twenty-four, whatever it reads.
 
 **Why 2 and not 1.** At `maxTurns: 1` the agent answers correctly and the harness then reports

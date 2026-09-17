@@ -15,7 +15,12 @@ set -uo pipefail
 
 HOOK_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
-. "$HOOK_DIR/plan-script-path.sh"
+# Guarded: a missing, half-written or syntactically broken resolver must not take down
+# every session on this machine. If sourcing does not define plan_script, fall back to the
+# deployed copy — the behaviour that existed before the resolver did.
+[ -r "$HOOK_DIR/plan-script-path.sh" ] && . "$HOOK_DIR/plan-script-path.sh" 2>/dev/null || true
+command -v plan_script >/dev/null 2>&1 || \
+    plan_script() { echo "${HOOK_DIR%/hooks}/skills/plan/scripts/$1"; }
 # Was a hardcoded ~/dotfiles path, which defeated the package's own location derivation and
 # pinned this guard to the deployed copy even in the pod that builds it.
 python3 "$(plan_script read-guard.py)" || true
