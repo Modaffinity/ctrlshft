@@ -1,6 +1,6 @@
 ---
 name: shape-probe
-description: Inert dispatch-shape probe. Replies with a single token and does no work. Used only to measure whether a session's helpers run in the foreground, by timing the dispatch round trip. Not for general tasks.
+description: Inert dispatch-shape probe. Replies with a single token and does no work. Dispatched only so that probe-shape.py can read the tool result the parent received and say whether helpers ran in the foreground. Not for general tasks.
 tools: Read
 model: haiku
 omitClaudeMd: true
