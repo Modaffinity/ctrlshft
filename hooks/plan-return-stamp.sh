@@ -135,31 +135,51 @@ SKEW = 60.0                     # a heartbeat may sit slightly ahead of this
 MATCHER = ("Task", "Agent")     # requirement 1, in that order
 
 
-FRONTMATTER_CAP = 64 * 1024     # a real STATE.md header is a few hundred bytes
+FRONTMATTER_CAP = 1 << 20       # a real STATE.md header is a few hundred bytes
 
 
 def frontmatter(path):
     """The leading `---` block as a dict. Parsed as frontmatter, never grepped: a ledger
     that quotes the words `session: build` in prose is not a live build workstream.
 
-    This path is REPOSITORY-CONTROLLED, which the unbounded read here ignored until
+    This path is REPOSITORY-CONTROLLED, which the plain `open()` here ignored until
     2026-09-17. A FIFO committed at `plans/x/STATE.md` blocked the open forever and a symlink
     to `/dev/zero` never reached EOF, so a repository could hang or exhaust the hook before any
-    gate ran — a denial of service needing nothing but a file in the tree. `lstat` first (a
-    symlink is not a regular file and is refused as one), then a capped read.
+    gate ran — a denial of service needing nothing but a file in the tree.
+
+    `lstat` then `open` was the first fix and it was still a RACE: the file can become a FIFO
+    between the two. Opening with O_NONBLOCK returns immediately on a FIFO instead of waiting
+    for a writer, and the regular-file test is made on the descriptor actually opened, so there
+    is no window between the check and the use.
+
+    ⚠️ The cap fails OPEN, deliberately. A `---` header that never terminates inside 1 MiB
+    makes this return `{}`, so that workstream is not seen as live and its liveness is not
+    checked. Treating it as live instead would hand any repository a way to BLOCK every
+    subagent return by committing one absurd file, and a denial of service on the operator is
+    a failure in the same threat model. The loss in this direction is bounded — a repository
+    hiding its OWN workstream from the supervisor gate, with the return gate still running —
+    and it costs a header a thousand times larger than any real one.
     """
     try:
-        info = os.lstat(path)
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
     except OSError:
         return {}
-    if not stat.S_ISREG(info.st_mode):
-        return {}
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            head = fh.read(FRONTMATTER_CAP)
-    except (OSError, UnicodeError):
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            return {}
+        want = min(info.st_size, FRONTMATTER_CAP) or FRONTMATTER_CAP
+        buf = b""
+        while len(buf) < want:
+            block = os.read(fd, want - len(buf))
+            if not block:
+                break
+            buf += block
+    except OSError:
         return {}
-    lines = head.split("\n")
+    finally:
+        os.close(fd)
+    lines = buf.decode("utf-8", "replace").split("\n")
     if not lines or lines[0].rstrip("\r") != "---":
         return {}
     out = {}
@@ -328,10 +348,16 @@ for slug in slugs:
     # The fallback carries the old collision risk for pods still on the released supervisor,
     # exactly as before and no worse; it protects nothing less than it did yesterday, and it
     # goes dead of its own accord when release 4 is promoted.
-    digest = hashlib.sha256(os.path.realpath(repo).encode("utf-8")).hexdigest()[:12]
+    # 128 bits, and `fsencode` rather than `encode("utf-8")`. At 48 bits an attacker
+    # choosing two checkout paths finds a colliding pair in about 2**24 tries, which is
+    # nothing; and a repository path that is legal on POSIX but not valid UTF-8 comes
+    # back from realpath with surrogate escapes and raised UnicodeEncodeError, killing
+    # the gate before it ran. The slug is truncated because the suffix is 35 bytes and a
+    # long-but-legal slug that used to fit in a 255-byte name now would not.
+    digest = hashlib.sha256(os.fsencode(os.path.realpath(repo))).hexdigest()[:32]
     folder = os.path.join(home, ".plan-guard", "state")
     beat = None
-    for name in ("%s--%s.json" % (slug, digest), "%s.json" % slug):
+    for name in ("%s--%s.json" % (slug[:120], digest), "%s.json" % slug):
         try:
             with open(os.path.join(folder, name), encoding="utf-8") as fh:
                 beat = json.load(fh).get("heartbeat")
