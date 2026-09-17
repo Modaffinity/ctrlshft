@@ -1,0 +1,10 @@
+plan is an OPERATION-layer skill. Its canonical source is the workshop pod:
+  cortexos-pods/hq/plan-skill/skills/plan/
+
+This dotfiles copy is the MIRROR written by check_skill_sync.sh --fix, because the
+package declares targets: [vscode]. It is not an independent planning-layer skill of
+the same name, and it must never be hand-edited — the release is authoritative and the
+next sync overwrites anything added here.
+
+Declared 2026-09-16 (claude-code), on the operator's ruling that the copy being edited
+must never be the copy four pods run. Gate: promote_skill.sh, see context/SKILL_LAYERS.md.
