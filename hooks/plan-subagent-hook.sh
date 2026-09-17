@@ -34,6 +34,8 @@ unset BASH_ENV ENV 2>/dev/null || true
 unset -f sh python3 2>/dev/null || true
 PLAN_SH=/bin/sh
 [ -x "$PLAN_SH" ] || PLAN_SH=sh
+PLAN_PY=/usr/bin/python3
+[ -x "$PLAN_PY" ] || PLAN_PY=python3
 PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
 # The resolver is RUN, never sourced: sourcing puts its failure modes (a stray `exit`, a
 # syntax error, an unset expansion under `set -u`) inside this hook's process, where a
@@ -55,21 +57,50 @@ GATE="$(plan_script return-gate.py)"
 # name) returns nothing, and `python3 ""` is a confusing failure rather than a gate.
 [ -n "$GATE" ] && [ -f "$GATE" ] || GATE="${HOOK_DIR%/hooks}/skills/plan/scripts/return-gate.py"
 
-# A trusted scratch directory, and a failure here BLOCKS. `mkdir -p "$ROOT" || exit 0`
-# failed OPEN: with TMPDIR=/dev/null the hook returned 0 before the return gate, the
-# boundary marker or the liveness check ran — an invalid stage return sailed through.
-# MEASURED 2026-09-17. This gate exists to block; when it cannot run, that is a block.
-ROOT="$(mktemp -d "${TMPDIR:-/tmp}/plan-subagent.XXXXXX" 2>/dev/null)" || ROOT=""
-if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
-    echo "RETURN-GATE: BLOCKED — no usable scratch directory; the gate could not run" >&2
+# Scratch, and BOTH failure directions matter here.
+#
+# `mkdir -p "$ROOT" || exit 0` failed OPEN: with TMPDIR=/dev/null the hook returned 0 before the
+# return gate, the boundary marker or the liveness check ran, so an invalid stage return sailed
+# through. MEASURED 2026-09-17.
+#
+# Its first replacement then failed the other way, twice over. `mktemp -d` under `$TMPDIR` is a
+# DENIAL OF SERVICE on the operator's own run — one inherited TMPDIR=/dev/null blocks every VALID
+# return — and worse, `trap 'rm -rf "$ROOT"'` made a destructive command depend on untrusted
+# output: an exported `mktemp` shell function returning `$HOME` would have had this hook delete
+# the home directory. A fix that introduces `rm -rf` on an attacker-chosen path is not a fix.
+#
+# So: try several roots, build the path OURSELVES, and never remove anything whose name we did
+# not construct.
+PLAN_TMP_PARENT=""
+for _cand in "${TMPDIR:-}" "${HOME:-}/.plan-guard/scratch" /tmp; do
+    [ -n "$_cand" ] || continue
+    mkdir -p "$_cand" 2>/dev/null || continue
+    [ -d "$_cand" ] && [ -w "$_cand" ] || continue
+    PLAN_TMP_PARENT="$_cand"
+    break
+done
+if [ -z "$PLAN_TMP_PARENT" ]; then
+    echo "RETURN-GATE: BLOCKED — no writable scratch directory anywhere; the gate could not run" >&2
     exit 2
 fi
-trap 'rm -rf "$ROOT"' EXIT
+ROOT="$PLAN_TMP_PARENT/plan-subagent-$$"
+mkdir -p "$ROOT" 2>/dev/null || {
+    echo "RETURN-GATE: BLOCKED — cannot create $ROOT; the gate could not run" >&2
+    exit 2
+}
+# Remove only what this process made, by a name it constructed, and only when it still looks like
+# that name. `rm -rf` never sees a path this script did not build.
+cleanup_scratch () {
+    case "$ROOT" in
+        */plan-subagent-$$) [ -d "$ROOT" ] && rm -rf "$ROOT" ;;
+    esac
+}
+trap cleanup_scratch EXIT
 PAYLOAD="$ROOT/payload.json"
 cat > "$PAYLOAD"
 
 # Jobs (b) and (c). One line on stdout: SKIP, OK, or "BLOCK <message>".
-VERDICT="$(python3 - "$PAYLOAD" <<'PY'
+VERDICT="$("$PLAN_PY" - "$PAYLOAD" <<'PY'
 import json
 import os
 import sys
@@ -200,7 +231,7 @@ fi
 [ "$VERDICT" = "SKIP" ] && exit 0
 
 # (a) the return gate. It prints its own RETURN-GATE: line on stderr.
-python3 "$GATE" --hook < "$PAYLOAD"
+"$PLAN_PY" "$GATE" --hook < "$PAYLOAD"
 gate_rc=$?
 blocked=0
 if [ "$gate_rc" -ne 0 ]; then
