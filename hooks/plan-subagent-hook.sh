@@ -27,15 +27,22 @@
 set -uo pipefail
 
 HOOK_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# The environment is the session's, so a `sh` or `python3` earlier in PATH — or a BASH_ENV
-# file, or an exported shell function of that name — chooses what runs. Absolute
-# interpreters and a cleared BASH_ENV close the cheap versions of that.
+# Absolute, isolated interpreters stop PATH choosing what runs.
+# ⚠️ This does NOT close BASH_ENV or exported shell functions: bash reads BASH_ENV
+# BEFORE line one of this file, and an exported `dirname` or `cd` runs before any
+# `unset -f` here. Sanitising from inside the hook cannot work; it belongs in whatever
+# launches hooks. Setting those already implies code execution, so it is ambient
+# rather than a hole this file opened — recorded, not claimed closed.
 unset BASH_ENV ENV 2>/dev/null || true
 unset -f sh python3 2>/dev/null || true
 PLAN_SH=/bin/sh
 [ -x "$PLAN_SH" ] || PLAN_SH=sh
 PLAN_PY=/usr/bin/python3
 [ -x "$PLAN_PY" ] || PLAN_PY=python3
+# `-I` ignores PYTHONPATH/PYTHONHOME, user site-packages and sitecustomize, and drops
+# the CWD from sys.path — so an untrusted repository cannot supply importable code to
+# the gate. Absolute alone did not isolate anything.
+PLAN_PY_ISO="-I"
 PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
 # The resolver is RUN, never sourced: sourcing puts its failure modes (a stray `exit`, a
 # syntax error, an unset expansion under `set -u`) inside this hook's process, where a
@@ -72,35 +79,39 @@ GATE="$(plan_script return-gate.py)"
 # So: try several roots, build the path OURSELVES, and never remove anything whose name we did
 # not construct.
 PLAN_TMP_PARENT=""
-for _cand in "${TMPDIR:-}" "${HOME:-}/.plan-guard/scratch" /tmp; do
+for _cand in "${TMPDIR:-}" "${HOME:-}/.plan-guard/tmp" /tmp; do
     [ -n "$_cand" ] || continue
     mkdir -p "$_cand" 2>/dev/null || continue
-    [ -d "$_cand" ] && [ -w "$_cand" ] || continue
+    [ -d "$_cand" ] && [ -w "$_cand" ] && [ ! -h "$_cand" ] || continue
     PLAN_TMP_PARENT="$_cand"
     break
 done
 if [ -z "$PLAN_TMP_PARENT" ]; then
-    echo "RETURN-GATE: BLOCKED — no writable scratch directory anywhere; the gate could not run" >&2
+    echo "RETURN-GATE: BLOCKED — no writable scratch parent; the gate could not run" >&2
     exit 2
 fi
-ROOT="$PLAN_TMP_PARENT/plan-subagent-$$"
-mkdir -p "$ROOT" 2>/dev/null || {
-    echo "RETURN-GATE: BLOCKED — cannot create $ROOT; the gate could not run" >&2
+# EXCLUSIVE creation, and the distinction is the whole point: `mkdir -p` SUCCEEDS on a directory
+# that already exists — including a symlink someone planted — and cleanup then deletes it as
+# though this process had made it. Plain `mkdir` fails if the name is taken, so the trap is armed
+# only for a directory this process demonstrably created.
+ROOT="$PLAN_TMP_PARENT/plan-subagent-$$-$(date +%s 2>/dev/null || echo 0)"
+if ! mkdir "$ROOT" 2>/dev/null; then
+    echo "RETURN-GATE: BLOCKED — could not create a private scratch directory" >&2
     exit 2
-}
-# Remove only what this process made, by a name it constructed, and only when it still looks like
-# that name. `rm -rf` never sees a path this script did not build.
+fi
 cleanup_scratch () {
     case "$ROOT" in
-        */plan-subagent-$$) [ -d "$ROOT" ] && rm -rf "$ROOT" ;;
+        "$PLAN_TMP_PARENT"/plan-subagent-$$-*) [ -d "$ROOT" ] && [ ! -h "$ROOT" ] && rm -rf "$ROOT" ;;
     esac
 }
 trap cleanup_scratch EXIT
 PAYLOAD="$ROOT/payload.json"
-cat > "$PAYLOAD"
+# A failed write used to be ignored, so a planted readable payload could stand in
+# for the real one — `stop_hook_active: true` in it makes this hook print SKIP.
+cat > "$PAYLOAD" || { echo "RETURN-GATE: BLOCKED — cannot write the payload" >&2; exit 2; }
 
 # Jobs (b) and (c). One line on stdout: SKIP, OK, or "BLOCK <message>".
-VERDICT="$("$PLAN_PY" - "$PAYLOAD" <<'PY'
+VERDICT="$("$PLAN_PY" $PLAN_PY_ISO - "$PAYLOAD" <<'PY'
 import json
 import os
 import sys
@@ -108,6 +119,10 @@ import time
 from datetime import datetime
 
 WINDOW = 120.0          # SPEC.md § 4.3a, seconds
+SKEW = 60.0             # a heartbeat may sit slightly in the future; beyond this it
+                        # is not clock skew, it is a stamp no real clock produced.
+                        # (No apostrophe here on purpose: this heredoc sits inside a
+                        # command substitution, and bash mis-parses a lone quote in it.)
 
 
 def frontmatter(path):
@@ -216,7 +231,11 @@ for slug in (live_slugs(root) if root else []):
     except (OSError, ValueError):
         beat = None
     seconds = age(beat)
-    if seconds is None or seconds > WINDOW:
+    # A RANGE, not just an upper bound. JSON permits NaN and Python parses it, and every
+    # comparison against NaN is False — so `seconds > WINDOW` was False and a heartbeat of NaN
+    # passed liveness. A far-future stamp gives a large negative age and passed the same way.
+    # Fail-closed means the age must be a finite number inside an explicit window.
+    if seconds is None or seconds != seconds or seconds > WINDOW or seconds < -SKEW:
         print("BLOCK PLAN-SUPERVISOR: not running (no heartbeat since %s) — start it "
               "before continuing." % ("never" if beat is None else beat))
         sys.exit(0)
@@ -231,7 +250,7 @@ fi
 [ "$VERDICT" = "SKIP" ] && exit 0
 
 # (a) the return gate. It prints its own RETURN-GATE: line on stderr.
-"$PLAN_PY" "$GATE" --hook < "$PAYLOAD"
+"$PLAN_PY" $PLAN_PY_ISO "$GATE" --hook < "$PAYLOAD"
 gate_rc=$?
 blocked=0
 if [ "$gate_rc" -ne 0 ]; then

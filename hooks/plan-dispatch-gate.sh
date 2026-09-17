@@ -25,6 +25,9 @@ unset BASH_ENV ENV 2>/dev/null || true
 unset -f sh python3 2>/dev/null || true
 PLAN_SH=/bin/sh
 [ -x "$PLAN_SH" ] || PLAN_SH=sh
+PLAN_PY=/usr/bin/python3
+[ -x "$PLAN_PY" ] || PLAN_PY=python3
+PLAN_PY_ISO="-I"
 PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
 # The resolver is RUN, never sourced: sourcing puts its failure modes (a stray `exit`, a
 # syntax error, an unset expansion under `set -u`) inside this hook's process, where a
@@ -41,5 +44,5 @@ plan_script() {
 }
 PLAN_TARGET="$(plan_script dispatch-gate.py)"
 [ -n "$PLAN_TARGET" ] && [ -f "$PLAN_TARGET" ] || PLAN_TARGET="${HOOK_DIR%/hooks}/skills/plan/scripts/dispatch-gate.py"
-python3 "$PLAN_TARGET" || true
+"$PLAN_PY" $PLAN_PY_ISO "$PLAN_TARGET" || true
 exit 0

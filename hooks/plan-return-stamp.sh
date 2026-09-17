@@ -63,6 +63,9 @@ unset BASH_ENV ENV 2>/dev/null || true
 unset -f sh python3 2>/dev/null || true
 PLAN_SH=/bin/sh
 [ -x "$PLAN_SH" ] || PLAN_SH=sh
+PLAN_PY=/usr/bin/python3
+[ -x "$PLAN_PY" ] || PLAN_PY=python3
+PLAN_PY_ISO="-I"
 PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
 # The resolver is RUN, never sourced: sourcing puts its failure modes (a stray `exit`, a
 # syntax error, an unset expansion under `set -u`) inside this hook's process, where a
@@ -82,13 +85,29 @@ GATE="$(plan_script return-gate.py)"
 # name) returns nothing, and `python3 ""` is a confusing failure rather than a gate.
 [ -n "$GATE" ] && [ -f "$GATE" ] || GATE="${HOOK_DIR%/hooks}/skills/plan/scripts/return-gate.py"
 
-ROOT="${TMPDIR:-/tmp}/plan-return-stamp-$$"
-mkdir -p "$ROOT" || exit 0
-trap 'rm -rf "$ROOT"' EXIT
+# Exclusive creation, and cleanup only for a name this process made. `mkdir -p` succeeds
+# on a pre-existing directory — including a planted symlink — and the old unconditional
+# `rm -rf` then deleted it as though this process had created it.
+PLAN_TMP_PARENT=""
+for _cand in "${TMPDIR:-}" "${HOME:-}/.plan-guard/tmp" /tmp; do
+    [ -n "$_cand" ] || continue
+    mkdir -p "$_cand" 2>/dev/null || continue
+    [ -d "$_cand" ] && [ -w "$_cand" ] && [ ! -h "$_cand" ] || continue
+    PLAN_TMP_PARENT="$_cand"; break
+done
+[ -n "$PLAN_TMP_PARENT" ] || exit 0
+ROOT="$PLAN_TMP_PARENT/plan-return-stamp-$$-$(date +%s 2>/dev/null || echo 0)"
+mkdir "$ROOT" 2>/dev/null || exit 0
+cleanup_stamp_scratch () {
+    case "$ROOT" in
+        "$PLAN_TMP_PARENT"/plan-return-stamp-$$-*) [ -d "$ROOT" ] && [ ! -h "$ROOT" ] && rm -rf "$ROOT" ;;
+    esac
+}
+trap cleanup_stamp_scratch EXIT
 PAYLOAD="$ROOT/payload.json"
 cat > "$PAYLOAD"
 
-python3 - "$PAYLOAD" "$GATE" "$ROOT" <<'PY'
+"$PLAN_PY" $PLAN_PY_ISO - "$PAYLOAD" "$GATE" "$ROOT" <<'PY'
 import json
 import os
 import subprocess
