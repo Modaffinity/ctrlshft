@@ -27,6 +27,13 @@
 set -uo pipefail
 
 HOOK_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The environment is the session's, so a `sh` or `python3` earlier in PATH — or a BASH_ENV
+# file, or an exported shell function of that name — chooses what runs. Absolute
+# interpreters and a cleared BASH_ENV close the cheap versions of that.
+unset BASH_ENV ENV 2>/dev/null || true
+unset -f sh python3 2>/dev/null || true
+PLAN_SH=/bin/sh
+[ -x "$PLAN_SH" ] || PLAN_SH=sh
 PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
 # The resolver is RUN, never sourced: sourcing puts its failure modes (a stray `exit`, a
 # syntax error, an unset expansion under `set -u`) inside this hook's process, where a
@@ -38,7 +45,7 @@ plan_script() {
     # Pass HOOK_DIR explicitly. Depending on the resolver deriving it from `$0` meant that
     # breaking that derivation disabled sealed resolution in production while every unit
     # test — which injects the argument — stayed green.
-    _cand="$(sh "$HOOK_DIR/plan-script-path.sh" "$1" "$PWD" "$HOOK_DIR" 2>/dev/null)" || _cand=""
+    _cand="$("$PLAN_SH" "$HOOK_DIR/plan-script-path.sh" "$1" "$PWD" "$HOOK_DIR" 2>/dev/null)" || _cand=""
     if [ -n "$_cand" ] && [ -f "$_cand" ]; then echo "$_cand"; else echo "$_deployed"; fi
 }
 # The pod that BUILDS this skill runs its own copy; everyone else runs the deployed one, and
@@ -48,8 +55,15 @@ GATE="$(plan_script return-gate.py)"
 # name) returns nothing, and `python3 ""` is a confusing failure rather than a gate.
 [ -n "$GATE" ] && [ -f "$GATE" ] || GATE="${HOOK_DIR%/hooks}/skills/plan/scripts/return-gate.py"
 
-ROOT="${TMPDIR:-/tmp}/plan-subagent-$$"
-mkdir -p "$ROOT" || exit 0
+# A trusted scratch directory, and a failure here BLOCKS. `mkdir -p "$ROOT" || exit 0`
+# failed OPEN: with TMPDIR=/dev/null the hook returned 0 before the return gate, the
+# boundary marker or the liveness check ran — an invalid stage return sailed through.
+# MEASURED 2026-09-17. This gate exists to block; when it cannot run, that is a block.
+ROOT="$(mktemp -d "${TMPDIR:-/tmp}/plan-subagent.XXXXXX" 2>/dev/null)" || ROOT=""
+if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
+    echo "RETURN-GATE: BLOCKED — no usable scratch directory; the gate could not run" >&2
+    exit 2
+fi
 trap 'rm -rf "$ROOT"' EXIT
 PAYLOAD="$ROOT/payload.json"
 cat > "$PAYLOAD"

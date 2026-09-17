@@ -87,6 +87,10 @@ plan_script() {
     # read back as `deadbeef`, and passed the hex check. Byte count sees what the shell cannot.
     [ "$(wc -c < "$_ps_ptr" 2>/dev/null | tr -d ' ')" = "65" ] || { echo "$_ps_deployed"; return 0; }
     [ "$(wc -l < "$_ps_ptr" 2>/dev/null | tr -d ' ')" = "1" ] || { echo "$_ps_deployed"; return 0; }
+    # The 65th byte must BE the newline. `32 hex, newline, 32 hex` with no final newline is also
+    # 65 bytes and one line, and `tr -d '\n'` joins it into a perfectly valid 64-hex id — so the
+    # size and line checks together still admitted a pointer that is not one hash line.
+    [ "$(tail -c 1 "$_ps_ptr" 2>/dev/null | wc -l | tr -d ' ')" = "1" ] || { echo "$_ps_deployed"; return 0; }
     _ps_seal_id="$(tr -d '\n' < "$_ps_ptr" 2>/dev/null)"
     [ "${#_ps_seal_id}" = 64 ] || { echo "$_ps_deployed"; return 0; }
     case "$_ps_seal_id" in
