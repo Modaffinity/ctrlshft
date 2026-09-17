@@ -67,3 +67,7 @@ shft/research/
 # Names the one repository allowed to supply executable hook code (plan-script-path.sh).
 # Machine-local and security-relevant: an authorization file is never shared.
 hooks/plan-builder-root
+
+# Sealed snapshots of the builder pod's plan scripts — machine-local, rebuilt by
+# seal_plan_scripts.sh, and never shared: they decide what four hooks execute.
+hooks/plan-seal/
