@@ -3,6 +3,29 @@
 The build session picks up where the planning session's handoff (P6) ends. Orchestrator-run — no
 operator input — until B9's report or a `stop` verdict.
 
+## Before the session — preflight
+
+```
+python3 ~/dotfiles/skills/plan/scripts/preflight.py
+```
+
+Run from inside the pod, before B1 and before any resume. It runs every gate the session
+depends on against the live workstream and prints one line per check; exit 1 means at
+least one FAIL, and a FAIL is fixed before the session opens, never during it.
+
+**Why this exists, measured:** on release 4's B2 three of the spine's own checks were
+broken at once, and every one of them surfaced *mid-run* — `coverage-pass.py` reported a
+correct 849-line spec as `0 of 0 constraints covered` (the between-stages loop's `blocked`
+branch would have deleted it), `return-gate.py --hook` rejected two valid returns because
+a subagent's report now arrives as a `SubagentHandback` tool call rather than as text, and
+`plan-supervisor.py` could not start because its state directory is inside the
+sandbox-denied `~/.claude`. Nothing runs these gates except a build session, so each fault
+is discovered by the run it breaks. **Verified 2026-09-16:** pointed at the pre-fix
+scripts, preflight reports all three as FAIL in about a second.
+
+A preflight run inside the command sandbox reports `supervisor-state` as FAIL: that is the
+sandbox, correctly, and the supervisor is launched outside it until the guard root moves.
+
 ## The nine stages
 
 | # | Stage | Trigger | Input | Output | Model | Exit condition |
