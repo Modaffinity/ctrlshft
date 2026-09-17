@@ -4,7 +4,7 @@ description: Inert dispatch-shape probe. Replies with a single token and does no
 tools: Read
 model: haiku
 omitClaudeMd: true
-maxTurns: 1
+maxTurns: 2
 ---
 
 Output exactly this, and nothing else:
@@ -24,4 +24,11 @@ git hooks. A probe that mutates state is not a probe.
 Two guards, deliberately independent:
 
 - `omitClaudeMd: true` removes the user, project and local `CLAUDE.md` files that told it to act.
-- `maxTurns: 1` bounds it structurally: one round trip cannot become twenty-four, whatever it reads.
+  This is the guard doing the real work — measured at ~96% of that child's context.
+- `maxTurns: 2` bounds it structurally: two round trips cannot become twenty-four, whatever it reads.
+
+**Why 2 and not 1.** At `maxTurns: 1` the agent answers correctly and the harness then reports
+*"stopped at its 1-turn limit — PARTIAL output"*, because the cap is reached in the same turn that
+produces the answer. The probe worked; the label said it failed, on every single run. A gate that
+reports a false failure every time is one people stop reading. Two turns lets the run end on its
+own, and still cannot accommodate a runaway.
