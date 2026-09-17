@@ -367,7 +367,11 @@
       "soffice",
       "/opt/homebrew/bin/soffice",
       "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-      "ask-codex *"
+      "ask-codex *",
+      "ps",
+      "ps *",
+      "pgrep *",
+      "pkill *"
     ],
     "network": {
       "allowedDomains": [
