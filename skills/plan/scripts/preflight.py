@@ -33,7 +33,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
-GUARD = os.path.join(HOME, ".claude", "plan-guard", "state")
+GUARD = os.path.join(HOME, ".plan-guard", "state")
 
 VALID_RETURN = ("ARTIFACT: plans/x/SPEC.md\n"
                 "LINES: 12\n"

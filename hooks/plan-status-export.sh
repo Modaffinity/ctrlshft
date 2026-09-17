@@ -5,7 +5,7 @@
 # exist (MEASURED, SPEC.md § 4.2) — so there is no renderer to pass through and nothing
 # is being replaced. This script is the *only* statusLine command: it reads the
 # statusLine input JSON on stdin, exports it (plus its own last-write time) to
-# ~/.claude/plan-guard/context/<session_id>.json and ~/.claude/plan-guard/seats.json for
+# ~/.plan-guard/context/<session_id>.json and ~/.plan-guard/seats.json for
 # T9 and T13 to read, then composes and prints the status line itself.
 #
 # Logic lives inline (not in <pkg>/scripts/) — this task's own Files list names only this
@@ -34,7 +34,7 @@ if not isinstance(data, dict):
 now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 session_id = data.get("session_id") or "unknown"
 
-base = os.path.expanduser("~/.claude/plan-guard")
+base = os.path.expanduser("~/.plan-guard")
 context_dir = os.path.join(base, "context")
 os.makedirs(context_dir, exist_ok=True)
 

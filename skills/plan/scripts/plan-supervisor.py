@@ -2,14 +2,14 @@
 """M4 — the supervisor: C2's bands and C3's ordered handoff.
 
 One foreground process. It polls the two harness-written sensor files —
-`~/.claude/plan-guard/context/<session>.json` (M3) and
-`~/.claude/plan-guard/boundary/<session>.jsonl` (M2) — and on an **actionable** boundary
+`~/.plan-guard/context/<session>.json` (M3) and
+`~/.plan-guard/boundary/<session>.jsonl` (M2) — and on an **actionable** boundary
 whose context is in the middle band or above it runs SPEC.md § 4.3's six steps in order.
 
     plan-supervisor.py --slug <slug> --session <id> --mode detect|arm
 
 **The ordering is the whole safety property, and the two-field marker is the correction
-(R183).** `attempting` is written to `~/.claude/plan-guard/state/<slug>.json` BEFORE a step
+(R183).** `attempting` is written to `~/.plan-guard/state/<slug>.json` BEFORE a step
 starts and `completed` AFTER it returns, so a crash between them leaves `attempting: <step>`
 with that step's marker absent. The draft's single marker, written before the step, let a
 restart read an unfinished `verify` as proof the verification had succeeded. Restart
@@ -109,7 +109,7 @@ def home():
 
 
 def guard(*parts):
-    return os.path.join(home(), ".claude", "plan-guard", *parts)
+    return os.path.join(home(), ".plan-guard", *parts)
 
 
 def now():

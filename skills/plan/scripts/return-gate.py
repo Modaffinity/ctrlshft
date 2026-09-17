@@ -378,7 +378,7 @@ def log_reject(home, session_id, line):
     """Requirement 6 — every rejection is appended, and a log that cannot be written is
     never a reason to let the return through."""
     try:
-        d = os.path.join(home, ".claude", "plan-guard", "rejects")
+        d = os.path.join(home, ".plan-guard", "rejects")
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "%s.log" % (session_id or "unknown")), "a",
                   encoding="utf-8") as fh:

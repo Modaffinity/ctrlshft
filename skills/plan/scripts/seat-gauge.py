@@ -21,7 +21,7 @@ an old number reported as today's. No session file at all is also no reading
 required to apply, decided here since the spec is silent on this exact case.
 
 Claude, primary — read. `rate_limits.seven_day.used_percentage` from
-`~/.claude/plan-guard/seats.json` (T4's statusLine export), freshness-checked
+`~/.plan-guard/seats.json` (T4's statusLine export), freshness-checked
 against the export's own recorded `_exported_at`, never against the file's
 mtime (the export's write time is what a consumer can trust; the file's mtime
 would also move on an unrelated touch).
@@ -71,7 +71,7 @@ def home():
 
 
 def seats_path():
-    return os.path.join(home(), ".claude", "plan-guard", "seats.json")
+    return os.path.join(home(), ".plan-guard", "seats.json")
 
 
 def ceiling_path():

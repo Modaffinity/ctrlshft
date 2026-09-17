@@ -346,7 +346,11 @@
       "allowWrite": [
         "~/projects",
         "/tmp",
-        "/private/tmp"
+        "/private/tmp",
+        "~/Library/Application Support/LibreOffice",
+        "~/Library/Caches/LibreOffice",
+        "~/Library/Saved Application State/org.libreoffice.script.savedState",
+        "~/.plan-guard"
       ],
       "denyWrite": [
         "~/.ssh",
@@ -360,6 +364,9 @@
       ]
     },
     "excludedCommands": [
+      "soffice",
+      "/opt/homebrew/bin/soffice",
+      "/Applications/LibreOffice.app/Contents/MacOS/soffice",
       "ask-codex *"
     ],
     "network": {

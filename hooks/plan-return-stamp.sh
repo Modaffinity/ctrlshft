@@ -21,7 +21,7 @@
 #       started protects nothing, and its absence is made loud in both nets rather than
 #       once.
 #
-# Rejections are appended to ~/.claude/plan-guard/rejects/<session_id>.log (requirement 4).
+# Rejections are appended to ~/.plan-guard/rejects/<session_id>.log (requirement 4).
 # File mode does not log — only hook mode does — so the append is this shim's job.
 #
 # Four decisions that are measured or scoped rather than chosen, and all four are
@@ -173,7 +173,7 @@ def log_reject(home, session_id, line):
     """Requirement 4. A log that cannot be written is never a reason to drop the stamp —
     the stamp is the mechanism, the log is the record of it."""
     try:
-        folder = os.path.join(home, ".claude", "plan-guard", "rejects")
+        folder = os.path.join(home, ".plan-guard", "rejects")
         os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, "%s.log" % (session_id or "unknown")), "a",
                   encoding="utf-8") as fh:
@@ -226,7 +226,7 @@ if rejected and verdict:
 
 # (b) the liveness stamp
 for slug in slugs:
-    state = os.path.join(home, ".claude", "plan-guard", "state", "%s.json" % slug)
+    state = os.path.join(home, ".plan-guard", "state", "%s.json" % slug)
     try:
         with open(state, encoding="utf-8") as fh:
             beat = json.load(fh).get("heartbeat")

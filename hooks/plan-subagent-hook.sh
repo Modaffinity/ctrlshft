@@ -4,7 +4,7 @@
 #   (a) the return gate — `return-gate.py --hook`, and a rejection blocks the stop with
 #       exit 2 so the reason reaches the subagent and it re-emits (SPEC.md § 6.1);
 #   (b) the boundary marker — one JSON line per stop into
-#       ~/.claude/plan-guard/boundary/<session_id>.jsonl, which is the live, harness-
+#       ~/.plan-guard/boundary/<session_id>.jsonl, which is the live, harness-
 #       executed signal the supervisor bands on (§ 4.2);
 #   (c) liveness — a supervisor nobody started protects nothing, so its ABSENCE blocks
 #       the stop rather than passing quietly (§ 4.3a). An absent state file blocks too;
@@ -130,7 +130,7 @@ home = os.path.expanduser("~")
 session = payload.get("session_id")
 
 # (b) the boundary marker
-folder = os.path.join(home, ".claude", "plan-guard", "boundary")
+folder = os.path.join(home, ".plan-guard", "boundary")
 os.makedirs(folder, exist_ok=True)
 with open(os.path.join(folder, "%s.jsonl" % (session or "unknown")), "a",
           encoding="utf-8") as fh:
@@ -145,7 +145,7 @@ if payload.get("stop_hook_active"):
 # (c) liveness
 root = repo_root(payload.get("cwd") or os.getcwd())
 for slug in (live_slugs(root) if root else []):
-    state = os.path.join(home, ".claude", "plan-guard", "state", "%s.json" % slug)
+    state = os.path.join(home, ".plan-guard", "state", "%s.json" % slug)
     try:
         with open(state, encoding="utf-8") as fh:
             beat = json.load(fh).get("heartbeat")
