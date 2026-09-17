@@ -1,0 +1,15 @@
+# plan-builder-root — copy this file to `plan-builder-root` (no extension) to enable it.
+#
+# One absolute path: the ONE repository allowed to supply workshop copies of `plan` scripts to
+# the four hooks that run them. Everything else — every other repository, and every session
+# outside this path — gets the deployed copy at <config>/skills/plan/scripts/.
+#
+# **This file is deliberately gitignored.** It authorizes code execution, so it is machine-local:
+# a shared repository must not hand a cloner a pre-set builder root they never chose. Without it
+# no workshop copy is used anywhere, which is the safe default.
+#
+# Only the pod that BUILDS the plan skill belongs here. If you are not developing the skill
+# itself, you do not need this file at all.
+#
+# Example:
+# /Users/you/cortexos-pods/hq/plan-skill

@@ -63,3 +63,7 @@ clients/*
 !clients/_template/**
 mechanisms/
 shft/research/
+
+# Names the one repository allowed to supply executable hook code (plan-script-path.sh).
+# Machine-local and security-relevant: an authorization file is never shared.
+hooks/plan-builder-root
