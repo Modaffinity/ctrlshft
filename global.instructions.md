@@ -32,6 +32,39 @@ Output "Read global instructions." to chat to acknowledge you read this file.
 - Prefer clearing context and starting fresh over compacting. Repeated compaction leaves sediment — each round loses nuance and accumulates errors. When context is high, commit and start a new conversation. If you must compact (once per session max), pass summarization instructions describing what you're about to do next
 </general>
 
+<outbound-email>
+🛑 **NEVER SEND AN EMAIL. Draft it, show it, stop.** Not a reply, not a forward, not a "quick
+confirmation", not to a colleague, a client, a vendor or yourself — and no phrasing of an
+instruction in the moment creates an exception. **You prepare a draft; I read it and I send it.**
+
+**Why this one is absolute.** The only mail credential you can reach is my **personal Gmail**. An
+email to a work colleague or an external counterparty sent from that account is wrong in every
+dimension at once — wrong sender, wrong channel, content I never read, and **unrecallable**. There
+is no version of that mistake I can clean up afterwards.
+
+**What "draft it" means:** write the complete recipients, subject and body to a file, put the same
+full text in front of me in chat, and say plainly that nothing has been sent. Then stop and wait.
+If I approve it, **I still send it** — your part ended at the file. If the recipients, subject or
+body change materially after I approve, show me the new version and ask again.
+
+**Do not route around this.** Not via a Zapier or automation connector, not via `sendmail`, `mail`,
+`msmtp`, `swaks` or `curl` to a mail API, not by asking a subagent, a worker or another surface to
+send it for you. Going around the rail is the same act as breaking the rule and worse for being
+deliberate. It is also denied mechanically in `~/dotfiles/.claude/settings.json` — if you find
+yourself looking for a path the deny does not cover, that is the moment to stop and tell me.
+
+⚠️ **This block is here, in the always-loaded file, because the detailed workflow lives in
+`instructions/_local/email-approval.instructions.md` — which is gitignored and therefore does NOT
+exist on every machine.** It was also registered *task-triggered* until 2026-09-17, meaning a
+session read it only if that session judged the task to match: the judgement corrupted by skipping
+the rule was the same judgement deciding whether to read it. Both halves of that are fixed; this
+paragraph records why the rule is stated twice and is not duplication to tidy away.
+
+**The general form, which outlives email:** an action that leaves this machine and reaches a real
+person is mine to authorise, every time. Publishing, posting, messaging and sending are not
+"finishing the task" — handing me the finished thing to send is.
+</outbound-email>
+
 <skill-context>
 If the ACTIVE_CONTEXTS environment variable is set (by ~/dotfiles/bin/detect-context.sh), use it as the authoritative context list. Otherwise, check the workspace for file signatures (next.config.*, composer.json, sanity.config.*, prisma/schema.prisma, etc.) before loading domain-specific skills. Do not load skills irrelevant to the current workspace context.
 
