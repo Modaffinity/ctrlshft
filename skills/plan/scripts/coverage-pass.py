@@ -40,7 +40,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 CONSTRAINTS_HEADING = re.compile(r"^##\s+Constraints\s*$")
 TOP_HEADING = re.compile(r"^##\s+\S")
-KEY_HEADING = re.compile(r"^####\s+(C\d+)\b")
+KEY_HEADING = re.compile(r"^#{3,4}\s+(C\d+)\b")   # `###` and `####`: briefs use both
 # `## 3. C1 — ...`, `### 4.3a Liveness ...`, `### 7.1 The Coverage script`.
 SECTION_HEADING = re.compile(r"^(#{2,3})\s+(\d+(?:\.\d+)*[a-z]?)(?=[.:)\s]|$)")
 SECTION_CITE = re.compile(r"§\s*(\d+(?:\.\d+)*[a-z]?)")
@@ -77,7 +77,11 @@ def defenced(text):
 
 
 def brief_keys(brief_text):
-    """Every `#### C<n> — ...` heading inside `## Constraints`, in the order found."""
+    """Every `### C<n> —` or `#### C<n> —` heading inside `## Constraints`, in the order
+    found. Both depths are accepted because both are in use: release 3's brief heads its
+    Constraints with four hashes and release 4's with three, and a parser that knows only
+    the depth it was written against reports `0 of 0` — an unreadable brief wearing the
+    costume of an uncovered spec (measured 2026-09-16)."""
     keys, inside = [], False
     for line in defenced(brief_text):
         if CONSTRAINTS_HEADING.match(line):
@@ -184,8 +188,10 @@ def main():
         print("sha256: %s" % digest)
         print()
         print("FINDINGS:")
-        print("- [blocking] the `## Constraints` section of %s did not parse — "
-              "0 of 0 is blocked, never a pass" % args.brief)
+        print("- [blocking] no `### C<n>` or `#### C<n>` heading was found under "
+              "`## Constraints` in %s. This is the BRIEF being unreadable here, not "
+              "the artifact being uncovered: 0 of 0 is blocked, never a pass, and "
+              "never evidence about %s." % (args.brief, args.artifact))
         return 2
 
     findings = []

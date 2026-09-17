@@ -13,8 +13,13 @@ other (`SPEC.md` § 6.1, TA8):
     resolve the plan in by the glob below; the directory form is what makes the ambiguity
     branch runnable outside a live session.
   * **Hook mode** — `--hook`, payload on stdin — takes `transcript_path` from the payload,
-    extracts the last assistant text block, locates the plan by the glob, and prints the
-    same line on **stderr** so it reaches the subagent as the block reason.
+    extracts the subagent's last RETURN — its last assistant text block, or the `message`
+    of a `SubagentHandback` tool call, whichever comes last — locates the plan by the glob,
+    and prints the same line on **stderr** so it reaches the subagent as the block reason.
+    The handback form is not optional: MEASURED 2026-09-16, a subagent's report reaches its
+    parent as `SubagentHandback(message=...)` and the transcript's last assistant TEXT at
+    that moment is something else entirely, so a text-only reader rejects two valid returns
+    for "no VERDICT line" and the stage's real verdict is never read at all.
 
 Both exit `0` ok, `2` rejected. Nothing else exits non-zero, so a usage error is a usage
 error and never reads as a clean return.
@@ -318,10 +323,25 @@ def verdict_line(reasons):
     return "RETURN-GATE: REJECTED — " + "; ".join(reasons), 2
 
 
+def is_handback(block):
+    """A subagent's hand-back tool call, by which its report reaches its parent."""
+    return (block.get("type") == "tool_use"
+            and str(block.get("name") or "").lower().endswith("handback"))
+
+
+def handback(block):
+    payload = block.get("input")
+    if not isinstance(payload, dict):
+        return ""
+    value = payload.get("message") or payload.get("text") or ""
+    return value if isinstance(value, str) else ""
+
+
 def last_assistant_text(transcript_path):
-    """The last assistant turn's text, joined across its text blocks. `None` when the
-    transcript is unreadable or carries no assistant text — which is fail-closed, and
-    deliberately: a hook that cannot read the return has not approved it."""
+    """The subagent's last return, whichever way it was emitted: an assistant text block,
+    or the `message` of a `SubagentHandback` tool call. `None` when the transcript is
+    unreadable or carries neither — which is fail-closed, and deliberately: a hook that
+    cannot read the return has not approved it."""
     try:
         lines = read_text(transcript_path).splitlines()
     except (OSError, UnicodeError):
@@ -342,8 +362,10 @@ def last_assistant_text(transcript_path):
         if isinstance(content, str):
             blocks = [content]
         elif isinstance(content, list):
-            blocks = [b.get("text", "") for b in content
-                      if isinstance(b, dict) and b.get("type") == "text"]
+            blocks = [handback(b) if is_handback(b) else b.get("text", "")
+                      for b in content
+                      if isinstance(b, dict)
+                      and (b.get("type") == "text" or is_handback(b))]
         else:
             blocks = []
         text = "\n".join(b for b in blocks if b)
