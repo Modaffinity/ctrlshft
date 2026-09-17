@@ -78,33 +78,37 @@ GATE="$(plan_script return-gate.py)"
 #
 # So: try several roots, build the path OURSELVES, and never remove anything whose name we did
 # not construct.
-PLAN_TMP_PARENT=""
+# Candidate parents are tried through to a CREATED directory, not just a writable-looking
+# parent. Round five stopped at the first parent passing -d/-w/-!h and then exited if the
+# exclusive mkdir failed there — so one unusable first candidate (quota, ENOSPC, an ACL -w does
+# not reflect, a pre-planted predictable name) took out the whole chain while a perfectly good
+# HOME or /tmp was never attempted.
+ROOT=""
 for _cand in "${TMPDIR:-}" "${HOME:-}/.plan-guard/tmp" /tmp; do
     [ -n "$_cand" ] || continue
     mkdir -p "$_cand" 2>/dev/null || continue
     [ -d "$_cand" ] && [ -w "$_cand" ] && [ ! -h "$_cand" ] || continue
-    PLAN_TMP_PARENT="$_cand"
-    break
+    # EXCLUSIVE: `mkdir -p` succeeds on a name that already exists, including a planted
+    # symlink, and cleanup then deletes it as though this process had made it.
+    _try="$_cand/plan-subagent-$$-$(date +%s 2>/dev/null || echo 0)"
+    if mkdir "$_try" 2>/dev/null; then
+        PLAN_TMP_PARENT="$_cand"; ROOT="$_try"; break
+    fi
 done
-if [ -z "$PLAN_TMP_PARENT" ]; then
-    echo "RETURN-GATE: BLOCKED — no writable scratch parent; the gate could not run" >&2
+if [ -z "$ROOT" ]; then
+    echo "RETURN-GATE: BLOCKED — no private scratch directory could be created; the gate could not run" >&2
     exit 2
 fi
-# EXCLUSIVE creation, and the distinction is the whole point: `mkdir -p` SUCCEEDS on a directory
-# that already exists — including a symlink someone planted — and cleanup then deletes it as
-# though this process had made it. Plain `mkdir` fails if the name is taken, so the trap is armed
-# only for a directory this process demonstrably created.
-ROOT="$PLAN_TMP_PARENT/plan-subagent-$$-$(date +%s 2>/dev/null || echo 0)"
-if ! mkdir "$ROOT" 2>/dev/null; then
-    echo "RETURN-GATE: BLOCKED — could not create a private scratch directory" >&2
-    exit 2
-fi
-cleanup_scratch () {
+cleanup_scratch_dir () {
     case "$ROOT" in
-        "$PLAN_TMP_PARENT"/plan-subagent-$$-*) [ -d "$ROOT" ] && [ ! -h "$ROOT" ] && rm -rf "$ROOT" ;;
+        # The FULL prefix this script constructed, never a wildcard that a
+        # neighbouring name could satisfy. Nothing is removed whose name we
+        # did not build ourselves.
+        "$PLAN_TMP_PARENT"/plan-subagent-$$-*)
+            [ -d "$ROOT" ] && [ ! -h "$ROOT" ] && rm -rf "$ROOT" ;;
     esac
 }
-trap cleanup_scratch EXIT
+trap cleanup_scratch_dir EXIT
 PAYLOAD="$ROOT/payload.json"
 # A failed write used to be ignored, so a planted readable payload could stand in
 # for the real one — `stop_hook_active: true` in it makes this hook print SKIP.
@@ -112,8 +116,10 @@ cat > "$PAYLOAD" || { echo "RETURN-GATE: BLOCKED — cannot write the payload" >
 
 # Jobs (b) and (c). One line on stdout: SKIP, OK, or "BLOCK <message>".
 VERDICT="$("$PLAN_PY" $PLAN_PY_ISO - "$PAYLOAD" <<'PY'
+import hashlib
 import json
 import os
+import stat
 import sys
 import time
 from datetime import datetime
@@ -125,23 +131,41 @@ SKEW = 60.0             # a heartbeat may sit slightly in the future; beyond thi
                         # command substitution, and bash mis-parses a lone quote in it.)
 
 
+FRONTMATTER_CAP = 64 * 1024     # a real STATE.md header is a few hundred bytes
+
+
 def frontmatter(path):
     """The leading `---` block as a dict. Parsed as frontmatter, never grepped: a ledger
-    that quotes the words `session: build` in prose is not a live build workstream."""
+    that quotes the words `session: build` in prose is not a live build workstream.
+
+    This path is REPOSITORY-CONTROLLED, which the unbounded read here ignored until
+    2026-09-17. A FIFO committed at `plans/x/STATE.md` blocked the open forever and a symlink
+    to `/dev/zero` never reached EOF, so a repository could hang or exhaust the hook before any
+    gate ran — a denial of service needing nothing but a file in the tree. `lstat` first (a
+    symlink is not a regular file and is refused as one), then a capped read.
+    """
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return {}
+    if not stat.S_ISREG(info.st_mode):
+        return {}
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
-            if fh.readline().rstrip("\n") != "---":
-                return {}
-            out = {}
-            for line in fh:
-                if line.strip() == "---":
-                    return out
-                key, sep, value = line.rstrip("\n").partition(":")
-                if sep:
-                    out[key.strip()] = value.strip()
-            return {}
+            head = fh.read(FRONTMATTER_CAP)
     except (OSError, UnicodeError):
         return {}
+    lines = head.split("\n")
+    if not lines or lines[0].rstrip("\r") != "---":
+        return {}
+    out = {}
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return out
+        key, sep, value = line.rstrip("\r").partition(":")
+        if sep:
+            out[key.strip()] = value.strip()
+    return {}
 
 
 def repo_root(cwd):
@@ -224,7 +248,12 @@ if payload.get("stop_hook_active"):
 # (c) liveness
 root = repo_root(payload.get("cwd") or os.getcwd())
 for slug in (live_slugs(root) if root else []):
-    state = os.path.join(home, ".plan-guard", "state", "%s.json" % slug)
+    # Keyed by repository AND slug. On slug alone the heartbeat was a GLOBAL name: two
+    # checkouts both holding a live plan-v2-release-4 shared one file, so a supervisor
+    # watching the first satisfied this gate in the second. Must match
+    # plan-supervisor.py state_name() and plan-return-stamp.sh exactly.
+    digest = hashlib.sha256(os.path.realpath(root).encode("utf-8")).hexdigest()[:12]
+    state = os.path.join(home, ".plan-guard", "state", "%s--%s.json" % (slug, digest))
     try:
         with open(state, encoding="utf-8") as fh:
             beat = json.load(fh).get("heartbeat")

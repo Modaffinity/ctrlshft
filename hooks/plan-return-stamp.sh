@@ -88,54 +88,88 @@ GATE="$(plan_script return-gate.py)"
 # Exclusive creation, and cleanup only for a name this process made. `mkdir -p` succeeds
 # on a pre-existing directory — including a planted symlink — and the old unconditional
 # `rm -rf` then deleted it as though this process had created it.
-PLAN_TMP_PARENT=""
+# Candidate parents are tried through to a CREATED directory, not just a writable-looking
+# parent. Round five stopped at the first parent passing -d/-w/-!h and then exited if the
+# exclusive mkdir failed there — so one unusable first candidate (quota, ENOSPC, an ACL -w does
+# not reflect, a pre-planted predictable name) took out the whole chain while a perfectly good
+# HOME or /tmp was never attempted.
+ROOT=""
 for _cand in "${TMPDIR:-}" "${HOME:-}/.plan-guard/tmp" /tmp; do
     [ -n "$_cand" ] || continue
     mkdir -p "$_cand" 2>/dev/null || continue
     [ -d "$_cand" ] && [ -w "$_cand" ] && [ ! -h "$_cand" ] || continue
-    PLAN_TMP_PARENT="$_cand"; break
+    # EXCLUSIVE: `mkdir -p` succeeds on a name that already exists, including a planted
+    # symlink, and cleanup then deletes it as though this process had made it.
+    _try="$_cand/plan-return-stamp-$$-$(date +%s 2>/dev/null || echo 0)"
+    if mkdir "$_try" 2>/dev/null; then
+        PLAN_TMP_PARENT="$_cand"; ROOT="$_try"; break
+    fi
 done
-[ -n "$PLAN_TMP_PARENT" ] || exit 0
-ROOT="$PLAN_TMP_PARENT/plan-return-stamp-$$-$(date +%s 2>/dev/null || echo 0)"
-mkdir "$ROOT" 2>/dev/null || exit 0
-cleanup_stamp_scratch () {
+[ -n "$ROOT" ] || exit 0
+cleanup_scratch_dir () {
     case "$ROOT" in
-        "$PLAN_TMP_PARENT"/plan-return-stamp-$$-*) [ -d "$ROOT" ] && [ ! -h "$ROOT" ] && rm -rf "$ROOT" ;;
+        # The FULL prefix this script constructed, never a wildcard that a
+        # neighbouring name could satisfy. Nothing is removed whose name we
+        # did not build ourselves.
+        "$PLAN_TMP_PARENT"/plan-return-stamp-$$-*)
+            [ -d "$ROOT" ] && [ ! -h "$ROOT" ] && rm -rf "$ROOT" ;;
     esac
 }
-trap cleanup_stamp_scratch EXIT
+trap cleanup_scratch_dir EXIT
 PAYLOAD="$ROOT/payload.json"
 cat > "$PAYLOAD"
 
 "$PLAN_PY" $PLAN_PY_ISO - "$PAYLOAD" "$GATE" "$ROOT" <<'PY'
+import hashlib
 import json
 import os
+import stat
 import subprocess
 import sys
 import time
 from datetime import datetime
 
 WINDOW = 120.0                  # SPEC.md § 4.3a, seconds
+SKEW = 60.0                     # a heartbeat may sit slightly ahead of this
+                                # clock; past that it is not skew.
 MATCHER = ("Task", "Agent")     # requirement 1, in that order
+
+
+FRONTMATTER_CAP = 64 * 1024     # a real STATE.md header is a few hundred bytes
 
 
 def frontmatter(path):
     """The leading `---` block as a dict. Parsed as frontmatter, never grepped: a ledger
-    that quotes the words `session: build` in prose is not a live build workstream."""
+    that quotes the words `session: build` in prose is not a live build workstream.
+
+    This path is REPOSITORY-CONTROLLED, which the unbounded read here ignored until
+    2026-09-17. A FIFO committed at `plans/x/STATE.md` blocked the open forever and a symlink
+    to `/dev/zero` never reached EOF, so a repository could hang or exhaust the hook before any
+    gate ran — a denial of service needing nothing but a file in the tree. `lstat` first (a
+    symlink is not a regular file and is refused as one), then a capped read.
+    """
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return {}
+    if not stat.S_ISREG(info.st_mode):
+        return {}
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
-            if fh.readline().rstrip("\n") != "---":
-                return {}
-            out = {}
-            for line in fh:
-                if line.strip() == "---":
-                    return out
-                key, sep, value = line.rstrip("\n").partition(":")
-                if sep:
-                    out[key.strip()] = value.strip()
-            return {}
+            head = fh.read(FRONTMATTER_CAP)
     except (OSError, UnicodeError):
         return {}
+    lines = head.split("\n")
+    if not lines or lines[0].rstrip("\r") != "---":
+        return {}
+    out = {}
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return out
+        key, sep, value = line.rstrip("\r").partition(":")
+        if sep:
+            out[key.strip()] = value.strip()
+    return {}
 
 
 def repo_root(cwd):
@@ -257,26 +291,46 @@ ret = os.path.join(root, "ret.txt")
 with open(ret, "w", encoding="utf-8") as fh:
     fh.write(text)
 try:
-    res = subprocess.run([sys.executable, gate, "--return", ret, "--plan", repo],
+    # `-I` on the CHILD too. The outer interpreter runs isolated, but a nested
+    # `[sys.executable, gate]` starts a FRESH one that does not: measured 2026-09-17,
+    # sys.flags.isolated == 0. With PYTHONPATH naming the untrusted repository, its
+    # sitecustomize.py then ran as the operator on every stamped dispatch — the exact
+    # exposure the isolation fix claimed to close, one process further down.
+    res = subprocess.run([sys.executable, "-I", gate, "--return", ret, "--plan", repo],
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     verdict = res.stdout.decode("utf-8", "replace").strip()
     rejected = res.returncode != 0
 except OSError as exc:
     verdict, rejected = "RETURN-GATE: did not run (%s)" % exc, True
-if rejected and verdict:
+if rejected:
+    # A rejection with NOTHING on stdout used to be dropped: `rejected and verdict` was
+    # false, no line was appended, and the whole second net vanished silently. A gate that
+    # exits non-zero has rejected the return whether or not it managed to say why, and
+    # "it failed and said nothing" is itself the thing the operator needs told.
+    if not verdict:
+        verdict = ("RETURN-GATE: REJECTED — the gate exited %s without a verdict; treat "
+                   "this return as unverified." % res.returncode)
     lines.append(verdict)
     log_reject(home, payload.get("session_id"), verdict)
 
 # (b) the liveness stamp
 for slug in slugs:
-    state = os.path.join(home, ".plan-guard", "state", "%s.json" % slug)
+    # Keyed by repository AND slug. On slug alone the heartbeat was a global name: a
+    # supervisor watching another checkout of the same workstream satisfied this stamp.
+    # Must match plan-supervisor.py state_name() and plan-subagent-hook.sh exactly.
+    digest = hashlib.sha256(os.path.realpath(repo).encode("utf-8")).hexdigest()[:12]
+    state = os.path.join(home, ".plan-guard", "state", "%s--%s.json" % (slug, digest))
     try:
         with open(state, encoding="utf-8") as fh:
             beat = json.load(fh).get("heartbeat")
     except (OSError, ValueError):
         beat = None
     seconds = age(beat)
-    if seconds is None or seconds > WINDOW:
+    # The SAME range the SubagentStop hook enforces. This file kept the bare upper bound
+    # through round five: NaN compares False against everything, so `seconds > WINDOW` was
+    # False and a NaN heartbeat read as live here while the other hook blocked it. A fix
+    # that lands in one of two call sites is not a fix.
+    if seconds is None or seconds != seconds or seconds > WINDOW or seconds < -SKEW:
         lines.append("PLAN-SUPERVISOR: not running (no heartbeat since %s) — start it "
                      "before continuing." % ("never" if beat is None else beat))
 
