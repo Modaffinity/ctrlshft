@@ -249,16 +249,28 @@ if payload.get("stop_hook_active"):
 root = repo_root(payload.get("cwd") or os.getcwd())
 for slug in (live_slugs(root) if root else []):
     # Keyed by repository AND slug. On slug alone the heartbeat was a GLOBAL name: two
-    # checkouts both holding a live plan-v2-release-4 shared one file, so a supervisor
-    # watching the first satisfied this gate in the second. Must match
+    # checkouts both holding a live workstream of the same name shared one file, so a
+    # supervisor watching the first satisfied this gate in the second. The digest must match
     # plan-supervisor.py state_name() and plan-return-stamp.sh exactly.
+    #
+    # THE UNKEYED NAME IS STILL READ, and that is the dev/prod split rather than backward
+    # compatibility. These hooks are GLOBAL — one copy fires in every session on this machine —
+    # while the supervisor is versioned per pod: this pod runs the workshop copy, every other
+    # pod runs the released one, which writes the old name. Reading only the new name would have
+    # blocked every subagent return in every other pod from the moment these hooks landed.
+    # The fallback carries the old collision risk for pods still on the released supervisor,
+    # exactly as before and no worse; it protects nothing less than it did yesterday, and it
+    # goes dead of its own accord when release 4 is promoted.
     digest = hashlib.sha256(os.path.realpath(root).encode("utf-8")).hexdigest()[:12]
-    state = os.path.join(home, ".plan-guard", "state", "%s--%s.json" % (slug, digest))
-    try:
-        with open(state, encoding="utf-8") as fh:
-            beat = json.load(fh).get("heartbeat")
-    except (OSError, ValueError):
-        beat = None
+    folder = os.path.join(home, ".plan-guard", "state")
+    beat = None
+    for name in ("%s--%s.json" % (slug, digest), "%s.json" % slug):
+        try:
+            with open(os.path.join(folder, name), encoding="utf-8") as fh:
+                beat = json.load(fh).get("heartbeat")
+            break
+        except (OSError, ValueError):
+            continue
     seconds = age(beat)
     # A RANGE, not just an upper bound. JSON permits NaN and Python parses it, and every
     # comparison against NaN is False — so `seconds > WINDOW` was False and a heartbeat of NaN
