@@ -28,12 +28,14 @@ set -uo pipefail
 
 HOOK_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
-# Guarded: a missing, half-written or syntactically broken resolver must not take down
-# every session on this machine. If sourcing does not define plan_script, fall back to the
-# deployed copy — the behaviour that existed before the resolver did.
+# The deployed-copy fallback is defined FIRST, then the resolver is allowed to replace it.
+# Order matters: testing `command -v plan_script` AFTER sourcing accepts an inherited
+# exported function or any executable of that name on PATH, so ambient code would choose
+# which gate runs. Defining it ourselves first, and unsetting anything inherited, means the
+# worst case is the behaviour that existed before the resolver did.
+unset -f plan_script 2>/dev/null || true
+plan_script() { echo "${HOOK_DIR%/hooks}/skills/plan/scripts/$1"; }
 [ -r "$HOOK_DIR/plan-script-path.sh" ] && . "$HOOK_DIR/plan-script-path.sh" 2>/dev/null || true
-command -v plan_script >/dev/null 2>&1 || \
-    plan_script() { echo "${HOOK_DIR%/hooks}/skills/plan/scripts/$1"; }
 # The pod that BUILDS this skill runs its own copy; everyone else runs the deployed one, and
 # any doubt falls back to deployed. See plan-script-path.sh.
 GATE="$(plan_script return-gate.py)"
