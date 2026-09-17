@@ -146,7 +146,10 @@ def frontmatter(path):
     `lstat` then `open` was the first fix and it was still a RACE: the file can become a FIFO
     between the two. Opening with O_NONBLOCK returns immediately on a FIFO instead of waiting
     for a writer, and the regular-file test is made on the descriptor actually opened, so there
-    is no window between the check and the use.
+    is no window between the check and the use. O_NOFOLLOW restores what dropping `lstat` gave
+    away: `open` follows symlinks, so a hundred `plans/*/STATE.md` links to one 1 MiB file made
+    every hook invocation read it a hundred times — a tiny repository buying gigabytes of I/O.
+    Refusing the link in the open itself is atomic, which `lstat` never was.
 
     ⚠️ The cap fails OPEN, deliberately. A `---` header that never terminates inside 1 MiB
     makes this return `{}`, so that workstream is not seen as live and its liveness is not
@@ -157,7 +160,7 @@ def frontmatter(path):
     and it costs a header a thousand times larger than any real one.
     """
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
     except OSError:
         return {}
     try:
@@ -175,7 +178,14 @@ def frontmatter(path):
         return {}
     finally:
         os.close(fd)
-    lines = buf.decode("utf-8", "replace").split("\n")
+    # Universal newlines, explicitly. The text reader this replaced normalised CR and CRLF
+    # to LF for free; splitting raw bytes on "\n" alone made `---\rsession: build\r---\r`
+    # parse as nothing, so a live workstream stopped being live and its supervisor stopped
+    # being required — a liveness bypass in a 23-byte ordinary file, introduced by the
+    # fix for the FIFO hang. Not `splitlines()`, which also breaks on \x0b, \x1c and
+    # \u2028 and would split lines the old reader kept whole.
+    text = buf.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.split("\n")
     if not lines or lines[0].rstrip("\r") != "---":
         return {}
     out = {}
@@ -281,16 +291,23 @@ for slug in (live_slugs(root) if root else []):
     # The fallback carries the old collision risk for pods still on the released supervisor,
     # exactly as before and no worse; it protects nothing less than it did yesterday, and it
     # goes dead of its own accord when release 4 is promoted.
-    # 128 bits, and `fsencode` rather than `encode("utf-8")`. At 48 bits an attacker
-    # choosing two checkout paths finds a colliding pair in about 2**24 tries, which is
-    # nothing; and a repository path that is legal on POSIX but not valid UTF-8 comes
-    # back from realpath with surrogate escapes and raised UnicodeEncodeError, killing
-    # the gate before it ran. The slug is truncated because the suffix is 35 bytes and a
-    # long-but-legal slug that used to fit in a 255-byte name now would not.
-    digest = hashlib.sha256(os.fsencode(os.path.realpath(root))).hexdigest()[:32]
+    # THE WHOLE SLUG REACHES THE DIGEST. Truncating it in the filename alone made two
+    # slugs sharing a 120-character prefix produce the identical name, so the second
+    # workstream consumed the heartbeat of the first — a collision introduced by the fix
+    # for a collision. (No apostrophe in this comment on purpose: the block sits inside a
+    # command substitution, and bash mis-parses a lone quote there. Sixth time today.)
+    # The name after it is a LABEL for the operator reading this
+    # directory, cut in BYTES because a filesystem limit is bytes: 110 accented
+    # characters are a legal 220-byte directory name that character truncation left
+    # untouched and overflowed a 255-byte name anyway. Suffix is 39 bytes, so 96 + 39
+    # leaves room. `fsencode` throughout: POSIX paths and names are bytes, and
+    # `.encode("utf-8")` raises on the ones realpath returns with surrogate escapes.
+    digest = hashlib.sha256(os.fsencode(os.path.realpath(root)) + b"\0"
+                            + os.fsencode(slug)).hexdigest()[:32]
+    label = os.fsencode(slug)[:96].decode("utf-8", "ignore")
     folder = os.path.join(home, ".plan-guard", "state")
     beat = None
-    for name in ("%s--%s.json" % (slug[:120], digest), "%s.json" % slug):
+    for name in ("%s--%s.json" % (label, digest), "%s.json" % slug):
         try:
             with open(os.path.join(folder, name), encoding="utf-8") as fh:
                 beat = json.load(fh).get("heartbeat")
