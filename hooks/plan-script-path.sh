@@ -38,6 +38,14 @@ plan_script() {
     _ps_name="$1"
     _ps_cwd="${2:-$PWD}"
 
+    # A bare filename, never a path. Callers pass literals today, so this is a latent hazard
+    # rather than a live one — but `plan_script "../../../etc/thing"` composed a traversing path
+    # out of BOTH the workshop and the deployed roots, and a guard that depends on every future
+    # caller being careful is not a guard. MEASURED 2026-09-17.
+    case "$_ps_name" in
+        ""|*/*|.|..) echo "" ; return 1 ;;
+    esac
+
     _ps_here="${PLAN_HOOK_DIR:-}"
     if [ -z "$_ps_here" ]; then
         _ps_here="$(cd -P "$(dirname "$0")" 2>/dev/null && pwd)"
@@ -53,6 +61,7 @@ plan_script() {
     # happens to be in the builder — recreating exactly the arbitrary-repository code execution
     # this file exists to prevent. MEASURED 2026-09-17: it did.
     case "$_ps_builder" in
+        /) echo "$_ps_deployed"; return 0 ;;   # the whole filesystem is not a builder
         /*) ;;
         *) echo "$_ps_deployed"; return 0 ;;
     esac
@@ -89,3 +98,22 @@ plan_script() {
     esac
     echo "$_ps_workshop"
 }
+
+# **Executable as well as sourceable, and the hooks use the EXECUTABLE form.** Sourcing this file
+# into a hook puts its failure modes inside the hook's own process: a stray `exit` ends the hook
+# before its gate runs, a syntax error can leave a half-defined `plan_script` behind, and an
+# unset expansion under `set -u` kills the shell. A fallback defined beforehand does not save any
+# of that — so the claim "the worst case is the behaviour before this file existed" was only true
+# for the cases that happened to be survivable.
+#
+# Run in isolation instead: the caller computes its deployed path first, asks this file for a
+# candidate in a separate process, and uses the candidate only if it comes back a real file.
+# Then nothing this file does can reach the hook except one line of stdout.
+case "${0##*/}" in
+    plan-script-path.sh)
+        if [ "$#" -ge 1 ]; then
+            plan_script "$@"
+            exit $?
+        fi
+        ;;
+esac

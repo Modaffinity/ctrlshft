@@ -19,13 +19,17 @@ set -uo pipefail
 
 HOOK_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLAN_HOOK_DIR="$HOOK_DIR"; export PLAN_HOOK_DIR
-# The deployed-copy fallback is defined FIRST, then the resolver is allowed to replace it.
-# Order matters: testing `command -v plan_script` AFTER sourcing accepts an inherited
-# exported function or any executable of that name on PATH, so ambient code would choose
-# which gate runs. Defining it ourselves first, and unsetting anything inherited, means the
-# worst case is the behaviour that existed before the resolver did.
-unset -f plan_script 2>/dev/null || true
-plan_script() { echo "${HOOK_DIR%/hooks}/skills/plan/scripts/$1"; }
-[ -r "$HOOK_DIR/plan-script-path.sh" ] && . "$HOOK_DIR/plan-script-path.sh" 2>/dev/null || true
-python3 "$(plan_script dispatch-gate.py)" || true
+# The resolver is RUN, never sourced: sourcing puts its failure modes (a stray `exit`, a
+# syntax error, an unset expansion under `set -u`) inside this hook's process, where a
+# pre-defined fallback cannot save them. Deployed is computed first and only replaced by a
+# candidate that comes back a real file, so nothing the resolver does reaches this hook
+# except one line of stdout.
+plan_script() {
+    _deployed="${HOOK_DIR%/hooks}/skills/plan/scripts/$1"
+    _cand="$(sh "$HOOK_DIR/plan-script-path.sh" "$1" "$PWD" 2>/dev/null)" || _cand=""
+    if [ -n "$_cand" ] && [ -f "$_cand" ]; then echo "$_cand"; else echo "$_deployed"; fi
+}
+PLAN_TARGET="$(plan_script dispatch-gate.py)"
+[ -n "$PLAN_TARGET" ] && [ -f "$PLAN_TARGET" ] || PLAN_TARGET="${HOOK_DIR%/hooks}/skills/plan/scripts/dispatch-gate.py"
+python3 "$PLAN_TARGET" || true
 exit 0
