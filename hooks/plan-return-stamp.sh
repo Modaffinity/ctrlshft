@@ -128,6 +128,7 @@ cat > "$PAYLOAD"
 "$PLAN_PY" $PLAN_PY_ISO - "$PAYLOAD" "$GATE" "$ROOT" <<'PY'
 import json
 import os
+import stat
 import subprocess
 import sys
 import time
@@ -170,21 +171,59 @@ def registrations(home, cwd):
     for name in names:
         if not name.endswith(".json"):
             continue
-        try:
-            with open(os.path.join(folder, name), encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
+        record = read_record(os.path.join(folder, name))
+        if record is None:
             continue
-        if not isinstance(data, dict):
-            continue
-        pod = data.get("pod")
+        pod = record.get("pod")
         if not isinstance(pod, str) or not pod:
             continue
         pod = os.path.realpath(pod)
         if here == pod or here.startswith(pod + os.sep):
-            out.append({"slug": data.get("slug") or name[:-len(".json")],
-                        "heartbeat": data.get("heartbeat"), "pod": pod})
+            out.append({"slug": record.get("slug") or name[:-len(".json")],
+                        "heartbeat": record.get("heartbeat"), "pod": pod})
+    # Most specific first. Picking by filename order handed the return of a child pod to
+    # the ancestor plan when one registration sits inside another. (No apostrophe in this
+    # comment on purpose: the block is a heredoc inside a command substitution, and bash
+    # mis-parses a lone quote there. Seventh time today.)
+    out.sort(key=lambda r: len(r["pod"]), reverse=True)
     return out
+
+
+RECORD_CAP = 1 << 20
+
+
+def read_record(path):
+    """One state record, or None. Bounded, non-blocking, never through a symlink.
+
+    Hardened even though ~/.plan-guard/ is the operator tree: a subagent runs under the operator
+    UID, so it can plant a FIFO or a link to /dev/zero among these records and hang the gate
+    before it runs. This makes that a skipped record rather than a stop that never returns.
+    Must match paths.py registrations()/_read_record.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            return None
+        want = min(info.st_size, RECORD_CAP) or RECORD_CAP
+        buf = b""
+        while len(buf) < want:
+            block = os.read(fd, want - len(buf))
+            if not block:
+                break
+            buf += block
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    try:
+        record = json.loads(buf.decode("utf-8", "replace"))
+    except ValueError:
+        return None
+    return record if isinstance(record, dict) else None
 
 
 def age(value):

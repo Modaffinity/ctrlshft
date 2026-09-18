@@ -134,6 +134,7 @@ cat > "$PAYLOAD" || { echo "RETURN-GATE: BLOCKED — cannot write the payload" >
 VERDICT="$("$PLAN_PY" $PLAN_PY_ISO - "$PAYLOAD" <<'PY'
 import json
 import os
+import stat
 import sys
 import time
 from datetime import datetime
@@ -176,21 +177,59 @@ def registrations(home, cwd):
     for name in names:
         if not name.endswith(".json"):
             continue
-        try:
-            with open(os.path.join(folder, name), encoding="utf-8") as fh:
-                data = json.load(fh)
-        except (OSError, ValueError):
+        record = read_record(os.path.join(folder, name))
+        if record is None:
             continue
-        if not isinstance(data, dict):
-            continue
-        pod = data.get("pod")
+        pod = record.get("pod")
         if not isinstance(pod, str) or not pod:
             continue
         pod = os.path.realpath(pod)
         if here == pod or here.startswith(pod + os.sep):
-            out.append({"slug": data.get("slug") or name[:-len(".json")],
-                        "heartbeat": data.get("heartbeat"), "pod": pod})
+            out.append({"slug": record.get("slug") or name[:-len(".json")],
+                        "heartbeat": record.get("heartbeat"), "pod": pod})
+    # Most specific first. Picking by filename order handed the return of a child pod to
+    # the ancestor plan when one registration sits inside another. (No apostrophe in this
+    # comment on purpose: the block is a heredoc inside a command substitution, and bash
+    # mis-parses a lone quote there. Seventh time today.)
+    out.sort(key=lambda r: len(r["pod"]), reverse=True)
     return out
+
+
+RECORD_CAP = 1 << 20
+
+
+def read_record(path):
+    """One state record, or None. Bounded, non-blocking, never through a symlink.
+
+    Hardened even though ~/.plan-guard/ is the operator tree: a subagent runs under the operator
+    UID, so it can plant a FIFO or a link to /dev/zero among these records and hang the gate
+    before it runs. This makes that a skipped record rather than a stop that never returns.
+    Must match paths.py registrations()/_read_record.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            return None
+        want = min(info.st_size, RECORD_CAP) or RECORD_CAP
+        buf = b""
+        while len(buf) < want:
+            block = os.read(fd, want - len(buf))
+            if not block:
+                break
+            buf += block
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    try:
+        record = json.loads(buf.decode("utf-8", "replace"))
+    except ValueError:
+        return None
+    return record if isinstance(record, dict) else None
 
 
 def age(value):
@@ -242,8 +281,23 @@ if payload.get("stop_hook_active"):
     print("SKIP")
     sys.exit(0)
 
+regs = registrations(home, payload.get("cwd") or os.getcwd())
+
+# ⚠️ SCOPE, and its absence was a MACHINE-WIDE DENIAL OF SERVICE. Job (a) ran on every subagent
+# stop in every project on this machine, and `return-gate.py --hook` has never had a scope check
+# of its own — so an ordinary prose answer in a repository with no plans came back
+# "REJECTED — no VERDICT line", exit 2, and the subagent was blocked until the harness block cap
+# released it on the ninth try. MEASURED 2026-09-17 in a temporary repository holding one README.
+#
+# It predates this release, and the fix belongs HERE rather than only in return-gate.py: these
+# hooks are global and take effect immediately, while the gate script other pods run is the
+# released copy and would not carry the fix until promotion.
+if not regs:
+    print("UNSCOPED")
+    sys.exit(0)
+
 # (c) liveness — over REGISTERED workstreams, never over the repository.
-for reg in registrations(home, payload.get("cwd") or os.getcwd()):
+for reg in regs:
     beat = reg["heartbeat"]
     seconds = age(beat)
     # A RANGE, not just an upper bound. JSON permits NaN and Python parses it, and every
@@ -265,6 +319,8 @@ if [ $? -ne 0 ] || [ -z "$VERDICT" ]; then
 fi
 
 [ "$VERDICT" = "SKIP" ] && exit 0
+# Nothing here is registered: not a plan session, so neither job (a) nor job (c) applies.
+[ "$VERDICT" = "UNSCOPED" ] && exit 0
 
 # (a) the return gate. It prints its own RETURN-GATE: line on stderr.
 "$PLAN_PY" $PLAN_PY_ISO "$GATE" --hook < "$PAYLOAD"
