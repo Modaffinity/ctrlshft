@@ -350,7 +350,7 @@
     "datalab-extract": "user-invocable-only"
   },
   "sandbox": {
-    "enabled": true,
+    "enabled": false,
     "filesystem": {
       "allowWrite": [
         "~/projects",
@@ -380,7 +380,10 @@
       "ps",
       "ps *",
       "pgrep *",
-      "pkill *"
+      "pkill *",
+      "bash */review-harness/codex-round.sh *",
+      "*/review-harness/codex-round.sh *",
+      "node */codex-companion.mjs *"
     ],
     "network": {
       "allowedDomains": [
