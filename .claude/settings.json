@@ -157,7 +157,15 @@
       "Bash(mail:*)",
       "Bash(mailx:*)",
       "Bash(msmtp:*)",
-      "Bash(swaks:*)"
+      "Bash(swaks:*)",
+      "Edit(//System/**)",
+      "Edit(//usr/**)",
+      "Edit(//bin/**)",
+      "Edit(//sbin/**)",
+      "Edit(//etc/**)",
+      "Edit(//private/etc/**)",
+      "Edit(//Library/**)",
+      "Edit(//Applications/**)"
     ]
   },
   "hooks": {
@@ -350,7 +358,8 @@
     "datalab-extract": "user-invocable-only"
   },
   "sandbox": {
-    "enabled": false,
+    "enabled": true,
+    "allowUnsandboxedCommands": false,
     "filesystem": {
       "allowWrite": [
         "~/projects",
@@ -359,7 +368,10 @@
         "~/Library/Application Support/LibreOffice",
         "~/Library/Caches/LibreOffice",
         "~/Library/Saved Application State/org.libreoffice.script.savedState",
-        "~/.plan-guard"
+        "~/.plan-guard",
+        "~/Library/CloudStorage/Dropbox/LLM/cortexos-pods",
+        "~/dotfiles",
+        "~/.codex"
       ],
       "denyWrite": [
         "~/.ssh",
@@ -383,7 +395,12 @@
       "pkill *",
       "bash */review-harness/codex-round.sh *",
       "*/review-harness/codex-round.sh *",
-      "node */codex-companion.mjs *"
+      "node */codex-companion.mjs *",
+      "bash */codex-run.sh *",
+      "*/codex-run.sh *",
+      "python3 */relauncher.py *",
+      "*/relauncher.py *",
+      "claude *"
     ],
     "network": {
       "allowedDomains": [
