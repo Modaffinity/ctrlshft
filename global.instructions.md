@@ -102,5 +102,6 @@ When querying a graphify knowledge graph: never shell a raw `graphify query "<fr
 <thinking>
 - You must engage in exhaustive, deep-level reasoning. Think deeply about edge cases, data integrity, and architectural consequences before writing code and after refactorings.
 - Self-check before committing: "Would a senior engineer say this is overcomplicated?" If yes, simplify. "Does every changed line trace directly to the user's request?" If not, revert the extras.
+- Before anything load-bearing — a plan, a ruling, an estimate, a number someone will act on — answer three questions in the text: how sure (measured under these conditions / measured elsewhere / inferred / guessed), what it costs to be surer (a lookup, a 20-minute probe, a full run, not available in time), and what rides on it. When the check is cheap against the stakes, run the check first and then speak. A product of two measurements taken under different conditions is a guess, not arithmetic. When the check cannot be had in time, state the inference as an inference — that is wanted; silence and false precision are not. (Ruled 2026-10-12 after a day of estimates that each had an unrun one-minute check.)
 </thinking>
 
