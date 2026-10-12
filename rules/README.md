@@ -10,6 +10,7 @@ Rules use YAML frontmatter with a `paths` field (list of globs). When the agent 
 
 | Rule | `paths` | Enforces |
 |------|---------|----------|
+| `coding-conventions.md` | `**/*.{ts,tsx,js,jsx,mjs,cjs,py,rb,go,rs,java,php,sh,bash,css,scss,html,svelte,vue}` | No placeholders, lean code, no back-compat, loud failures, read before writing, stay in task |
 | `dark-mode.md` | `**/*.{tsx,jsx,css,scss}` | DMDS surface tokens, dark variants for all components |
 | `env-security.md` | `**/.env*`, `**/secrets/**`, `**/credentials*` | No hardcoded secrets; environment variables via `run-with-secrets.sh` |
 | `framer-motion.md` | `**/*.{tsx,jsx}` | Scroll-triggered reveals, no hero animations, CLS-safe, reduced-motion |

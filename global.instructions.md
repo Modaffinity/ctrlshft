@@ -1,5 +1,5 @@
 ---
-description: "Universal agent rules — source of truth, coding standards, error handling, and safety constraints. Always relevant."
+description: "Universal agent rules — source of truth, safety constraints and working guards. Always relevant; coding conventions live in rules/coding-conventions.md."
 ---
 <!-- global.instructions.md — Universal agent rules loaded for every workspace.
      Referenced by CLAUDE.md via @~/dotfiles/global.instructions.md.
@@ -17,13 +17,6 @@ Public shared skills belong in ~/dotfiles/skills/. Private machine/client skills
 Output "Read global instructions." to chat to acknowledge you read this file.
 
 <general>
-- Leave NO todo's, placeholders or missing pieces
-- Keep it simple, lean, reuse what we have. Prefer early returns, removing code over adding. Think how can we REMOVE code from this repo instead of adding baggage or bloat
-- Do not add legacy or backward compatibility except for database migrations
-- Never fail silently. No sample data, placeholder text, or defensive fixes — throw explicit errors with context. If a response is unexpected, print it raw for debugging
-- Before adding or changing code, read existing examples of the same pattern. Scan all usages of shared methods before modifying. Match existing style exactly
-- Verify utilities and functions exist in the codebase before using them — search for definitions first, never assume a name exists
-- Don't touch code outside the task. If you notice dead code or problems, mention them — don't fix them. Only remove imports/variables your changes made unused
 - Never change my AI model, its context window, settings, URL or API keys unless explicitly told to do so
 - If anything is unclear, ambiguous, or has a simpler alternative, stop and ask before implementing. List options when multiple valid interpretations exist
 - NEVER print credentials: Not in logs, not in error messages, not in agent outputs
