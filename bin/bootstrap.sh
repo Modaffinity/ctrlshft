@@ -478,6 +478,69 @@ else
     yellow "  $CODEX_AGENT_SRC not found — skipping"
 fi
 
+# ── 7.8. Codex global instructions (~/.codex/AGENTS.md) ─────────────────────
+# Rendered from the CLAUDE.md step 2 generates — never hand-edited. Codex cannot
+# follow `@path` imports, so each line-start import is inlined in place (nested
+# ones too); an `@` inside a ``` fence is example text and stays. A block that
+# opens with one of the markers is Claude-only mechanics and is left out: a
+# `<tag>` marker drops through `</tag>`, any other through the next blank line.
+_render_codex_agents() {
+    local src="$1" out="$2" tmp="$2.tmp"
+    local markers=(
+        "<skill-context>"                                    # ~/.claude/skills core + pod/skills.txt loading
+        "<!-- Counter-directive for microsoft/vscode#311462" # VS Code Copilot workaround + <rule-loading>
+        "If the HUD daemon is running"                       # HUD events for VS Code Copilot sessions
+    )
+    if ! {
+        printf '<!-- GENERATED FILE — do not edit directly.\n'
+        printf '     Built by bootstrap.sh from ~/dotfiles/CLAUDE.md with every @path import inlined.\n'
+        printf '     Edit CLAUDE.base.md or the imported file instead, then run: bash ~/dotfiles/bin/bootstrap.sh -->\n'
+        MARKERS="$(printf '%s\n' "${markers[@]}")" awk '
+            BEGIN { n = split(ENVIRON["MARKERS"], M, "\n") }
+            function emit(l,   i) {
+                if (drop == "eat") { drop = ""; if (l == "") return }
+                if (drop == "para") { if (l == "") drop = ""; return }
+                if (drop != "") { if (index(l, drop) == 1) drop = "eat"; return }
+                for (i = 1; i <= n; i++) if (index(l, M[i]) == 1) {
+                    drop = (M[i] ~ /^<[a-z-]+>$/) ? "</" substr(M[i], 2) : "para"
+                    return
+                }
+                gsub(/"Read Claude\."/, "\"Read Codex.\"", l)
+                print l
+            }
+            function take(l,   p, r, x) {
+                if (l ~ /^```/) fence = !fence
+                if (fence || l !~ /^@[~\/]/) { emit(l); return }
+                p = substr(l, 2); sub(/^~/, ENVIRON["HOME"], p)
+                while ((r = (getline x < p)) > 0) take(x)
+                if (r < 0) { print "cannot read import " l > "/dev/stderr"; exit 1 }
+                close(p)
+            }
+            NR == 1, /-->/ { next }
+            { take($0) }
+        ' "$src"
+    } > "$tmp"; then
+        rm -f "$tmp"
+        red "  Could not render ~/.codex/AGENTS.md — left unchanged"
+        return 1
+    fi
+    if cmp -s "$tmp" "$out"; then
+        rm -f "$tmp"
+        yellow "  ~/.codex/AGENTS.md is up to date — skipping"
+    else
+        mv "$tmp" "$out"
+        green "  Rendered ~/.codex/AGENTS.md from CLAUDE.md (${#markers[@]} Claude-only marker(s) left out)"
+    fi
+}
+
+echo
+green "[7.8/13] Codex global instructions (~/.codex/AGENTS.md)"
+if [[ -d "$CODEX_DIR" ]]; then
+    _render_codex_agents "$DOTFILES/CLAUDE.md" "$CODEX_DIR/AGENTS.md" || _fail=1
+else
+    yellow "  Codex not detected — skipping"
+fi
+
 # ── 8. Symlink ~/.copilot/skills/ ────────────────────────────────────────────
 echo
 green "[8/13] Copilot skills directory"
