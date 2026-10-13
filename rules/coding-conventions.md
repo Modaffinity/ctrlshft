@@ -6,8 +6,6 @@ paths:
 
 # Coding Conventions
 
-Auto-loads when editing source files.
-
 - Leave NO todo's, placeholders or missing pieces
 - Keep it simple, lean, reuse what we have. Prefer early returns, removing code over adding. Think how can we REMOVE code from this repo instead of adding baggage or bloat
 - Do not add legacy or backward compatibility except for database migrations

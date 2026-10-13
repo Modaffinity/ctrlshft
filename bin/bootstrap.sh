@@ -484,8 +484,9 @@ fi
 # ones too); an `@` inside a ``` fence is example text and stays. A block that
 # opens with one of the markers is Claude-only mechanics and is left out: a
 # `<tag>` marker drops through `</tag>`, any other through the next blank line.
+# Codex has no path-gated rules, so the coding-conventions rule body is appended.
 _render_codex_agents() {
-    local src="$1" out="$2" tmp="$2.tmp"
+    local src="$1" out="$2" rule="$3" tmp="$2.tmp"
     local markers=(
         "<skill-context>"                                    # ~/.claude/skills core + pod/skills.txt loading
         "<!-- Counter-directive for microsoft/vscode#311462" # VS Code Copilot workaround + <rule-loading>
@@ -493,8 +494,8 @@ _render_codex_agents() {
     )
     if ! {
         printf '<!-- GENERATED FILE — do not edit directly.\n'
-        printf '     Built by bootstrap.sh from ~/dotfiles/CLAUDE.md with every @path import inlined.\n'
-        printf '     Edit CLAUDE.base.md or the imported file instead, then run: bash ~/dotfiles/bin/bootstrap.sh -->\n'
+        printf '     Built by bootstrap.sh from ~/dotfiles/CLAUDE.md with every @path import inlined,\n'
+        printf '     then rules/coding-conventions.md. Edit those sources, then run: bash ~/dotfiles/bin/bootstrap.sh -->\n'
         MARKERS="$(printf '%s\n' "${markers[@]}")" awk '
             BEGIN { n = split(ENVIRON["MARKERS"], M, "\n") }
             function emit(l,   i) {
@@ -518,7 +519,8 @@ _render_codex_agents() {
             }
             NR == 1, /-->/ { next }
             { take($0) }
-        ' "$src"
+        ' "$src" &&
+        awk 'f >= 2; /^---$/ { f++ }' "$rule"
     } > "$tmp"; then
         rm -f "$tmp"
         red "  Could not render ~/.codex/AGENTS.md — left unchanged"
@@ -536,7 +538,7 @@ _render_codex_agents() {
 echo
 green "[7.8/13] Codex global instructions (~/.codex/AGENTS.md)"
 if [[ -d "$CODEX_DIR" ]]; then
-    _render_codex_agents "$DOTFILES/CLAUDE.md" "$CODEX_DIR/AGENTS.md" || _fail=1
+    _render_codex_agents "$DOTFILES/CLAUDE.md" "$CODEX_DIR/AGENTS.md" "$DOTFILES/rules/coding-conventions.md" || _fail=1
 else
     yellow "  Codex not detected — skipping"
 fi
