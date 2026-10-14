@@ -381,13 +381,30 @@
         "~/.plan-guard",
         "~/Library/CloudStorage/Dropbox/LLM/cortexos-pods",
         "~/dotfiles",
-        "~/.codex"
+        "~/.codex",
+        "~/.cache",
+        "~/.npm",
+        "~/.npm-global",
+        "~/.local",
+        "~/Library/Caches",
+        "~/Library/Python",
+        "~/Library/Fonts",
+        "~/Library/Application Support",
+        "~/Documents",
+        "~/Downloads",
+        "~/Desktop",
+        "/opt/homebrew",
+        "/usr/local/lib/node_modules"
       ],
       "denyWrite": [
         "~/.ssh",
         "~/dotfiles/secrets",
         "~/.claude",
-        "~/.config"
+        "~/.config",
+        "~/Library/Keychains",
+        "~/.aws",
+        "~/.gnupg",
+        "~/Library/Mail"
       ],
       "denyRead": [
         "~/.ssh",
@@ -425,7 +442,22 @@
         "files.pythonhosted.org",
         "proxy.golang.org",
         "sum.golang.org",
-        "api.plane.so"
+        "api.plane.so",
+        "cdn.playwright.dev",
+        "playwright.azureedge.net",
+        "cdn.jsdelivr.net",
+        "unpkg.com",
+        "cdnjs.cloudflare.com",
+        "fonts.googleapis.com",
+        "fonts.gstatic.com",
+        "objects.githubusercontent.com",
+        "codeload.github.com",
+        "ghcr.io",
+        "formulae.brew.sh",
+        "huggingface.co",
+        "cdn-lfs.huggingface.co",
+        "registry.yarnpkg.com",
+        "download.pytorch.org"
       ],
       "allowUnixSockets": [
         "~/.docker/run/docker.sock"
