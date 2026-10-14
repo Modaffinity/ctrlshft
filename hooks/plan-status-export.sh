@@ -43,11 +43,22 @@ os.makedirs(context_dir, exist_ok=True)
 record = dict(data)
 record["_exported_at"] = now
 
-with open(os.path.join(context_dir, f"{session_id}.json"), "w") as f:
-    json.dump(record, f)
+# Atomic: a reader sees the old file or the new one, never a truncated one. A plain
+# open("w") let seat-gauge.py read an empty seats.json mid-write, exit 4, and stop two
+# release-8 handovers (2026-10-14 04:39Z, 20:49Z).
+def write_atomic(path, obj):
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    with open(tmp, "w") as f:
+        json.dump(obj, f)
+    os.replace(tmp, path)
 
-with open(os.path.join(base, "seats.json"), "w") as f:
-    json.dump(record, f)
+
+write_atomic(os.path.join(context_dir, f"{session_id}.json"), record)
+
+# seats.json is the machine-wide seat reading: only a payload that carries one may
+# replace it, so a session without rate_limits never erases the last good reading.
+if isinstance(data.get("rate_limits"), dict):
+    write_atomic(os.path.join(base, "seats.json"), record)
 
 
 def render(value):
