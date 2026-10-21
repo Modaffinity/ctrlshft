@@ -91,6 +91,12 @@
       "Bash(ask-codex:*)"
     ],
     "deny": [
+      "Bash(ps -E:*)",
+      "Bash(ps -Ae:*)",
+      "Bash(ps eww:*)",
+      "Bash(ps -eww:*)",
+      "Bash(ps auxe:*)",
+      "Bash(ps auxeww:*)",
       "Bash(gh auth token:*)",
       "Bash(gh repo delete:*)",
       "Bash(gh secret set:*)",
@@ -409,7 +415,8 @@
       "denyRead": [
         "~/.ssh",
         "~/dotfiles/secrets"
-      ]
+      ],
+      "allowGitConfig": true
     },
     "excludedCommands": [
       "soffice",
@@ -427,6 +434,15 @@
       "*/codex-run.sh *",
       "python3 */relauncher.py *",
       "*/relauncher.py *",
+      "git worktree *",
+      "machine-state",
+      "machine-state *",
+      "*/machine-state",
+      "*/machine-state *",
+      "bash */land-gate.sh *",
+      "*/land-gate.sh *",
+      "bash */reconcile_pod_skills.sh *",
+      "*/reconcile_pod_skills.sh *",
       "claude *"
     ],
     "network": {

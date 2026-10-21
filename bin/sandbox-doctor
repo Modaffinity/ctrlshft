@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""sandbox-doctor — does the Claude Code sandbox let this machine's pipeline work, and still guard what it must?
+
+Run it from a pod (a git repo), inside a Claude session, at session start or in preflight.
+Prints one PASS / FAIL line per check, and for each FAIL the fix. Exit 0 = all pass, 1 = a FAIL.
+It never prints a secret and changes nothing it does not undo.
+"""
+import json, os, subprocess, sys, tempfile
+
+HOME = os.path.expanduser('~')
+SRC = f'{HOME}/dotfiles/.claude/settings.json'
+LIVE = f'{HOME}/.claude/settings.json'
+fails = 0
+
+
+def report(ok, name, fix=''):
+    global fails
+    print(f'{"PASS" if ok else "FAIL"}  {name}' + ('' if ok else f'\n      fix: {fix}'))
+    fails += not ok
+
+
+def try_write(path, is_dir=False):
+    try:
+        if is_dir:
+            d = tempfile.mkdtemp(prefix='sandbox-doctor-', dir=path); os.rmdir(d)
+        else:
+            with open(path, 'a'):
+                pass
+            os.remove(path)
+        return True
+    except OSError:
+        return False
+
+
+def deep_merge(a, b):  # what bootstrap.sh's `jq -s '.[0] * .[1]'` produces
+    if isinstance(a, dict) and isinstance(b, dict):
+        return {k: deep_merge(a[k], b[k]) if k in a and k in b else b.get(k, a.get(k)) for k in {**a, **b}}
+    return b
+
+
+src, live = json.load(open(SRC)), json.load(open(LIVE))
+want = deep_merge(live, src)
+for key in ('sandbox', 'permissions'):
+    report(live.get(key) == want.get(key), f'live settings carry the dotfiles {key} section',
+           'run in a terminal: bash ~/dotfiles/bin/bootstrap.sh (no Claude session may write ~/.claude)')
+
+sb = live.get('sandbox', {})
+excluded = set(sb.get('excludedCommands', []))
+for pattern in ('git worktree *', '*/land-gate.sh *', '*/machine-state *', '*/reconcile_pod_skills.sh *',
+                '*/relauncher.py *', '*/codex-run.sh *', 'node */codex-companion.mjs *'):
+    report(pattern in excluded, f'excluded from the sandbox: {pattern}',
+           f'add "{pattern}" to sandbox.excludedCommands in {SRC}, then bootstrap')
+report(sb.get('filesystem', {}).get('allowGitConfig') is True, 'sandbox.filesystem.allowGitConfig is true',
+       f'set it in {SRC}, then bootstrap')
+
+# Probes, run inside the sandbox exactly as a session's Bash would.
+inside_repo = subprocess.run(['git', 'rev-parse', '--git-dir'], capture_output=True, text=True)
+if inside_repo.returncode == 0:
+    ok = subprocess.run(['git', 'config', '--local', 'sandboxdoctor.probe', '1'], capture_output=True).returncode == 0
+    if ok:
+        subprocess.run(['git', 'config', '--local', '--unset', 'sandboxdoctor.probe'], capture_output=True)
+    report(ok, 'git can write .git/config (branch delete, upstream)', 'allowGitConfig, then bootstrap')
+    hooks = os.path.join(inside_repo.stdout.strip(), 'hooks', 'sandbox-doctor-probe')
+    report(not try_write(hooks), 'CONTROL: .git/hooks stays write-protected', 'the sandbox must never allow this')
+else:
+    print('SKIP  git probes — not run from inside a git repository')
+
+for path in (f'{HOME}/.cache', f'{HOME}/.npm', os.environ.get('TMPDIR', '/tmp')):
+    report(try_write(path, is_dir=True), f'can write scratch under {path}', f'add {path} to filesystem.allowWrite, then bootstrap')
+
+report(not try_write(f'{HOME}/.ssh/sandbox-doctor-probe'), 'CONTROL: ~/.ssh stays write-protected', 'the sandbox must never allow this')
+try:
+    os.listdir(f'{HOME}/dotfiles/secrets'); secrets_readable = True
+except OSError:
+    secrets_readable = False
+report(not secrets_readable, 'CONTROL: ~/dotfiles/secrets stays unreadable', 'the sandbox must never allow this')
+
+print(f'\n{"ALL PASS" if not fails else f"{fails} FAIL"} — sandbox-doctor')
+sys.exit(1 if fails else 0)
