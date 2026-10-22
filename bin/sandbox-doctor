@@ -59,7 +59,12 @@ if inside_repo.returncode == 0:
     ok = subprocess.run(['git', 'config', '--local', 'sandboxdoctor.probe', '1'], capture_output=True).returncode == 0
     if ok:
         subprocess.run(['git', 'config', '--local', '--unset', 'sandboxdoctor.probe'], capture_output=True)
-    report(ok, 'git can write .git/config (branch delete, upstream)', 'allowGitConfig, then bootstrap')
+    # Known limit (measured 2026-10-21, Claude Code 2.1.307, macOS): .git/config.lock stays protected even with
+    # allowGitConfig, in fresh sessions too. Branch deletion still succeeds (with a config warning); upstream
+    # tracking is not written. Never fix this by excluding "git config *": core.hooksPath / core.fsmonitor would
+    # let a session run commands outside the sandbox.
+    print(f'{"PASS" if ok else "KNOWN"}  git can write .git/config'
+          + ('' if ok else ' — protected by Claude Code on macOS; branch delete still works with a warning; do NOT exclude git config'))
     hooks = os.path.join(inside_repo.stdout.strip(), 'hooks', 'sandbox-doctor-probe')
     report(not try_write(hooks), 'CONTROL: .git/hooks stays write-protected', 'the sandbox must never allow this')
 else:
