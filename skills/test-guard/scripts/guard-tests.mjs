@@ -11,8 +11,8 @@
 // Exit codes: 0 nothing weakened, 1 something weakened (errors), 2 usage or git error.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /** Severity and advice per rule. */
@@ -552,4 +552,4 @@ function main(argv) {
 		: 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = main(process.argv.slice(2));
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) process.exitCode = main(process.argv.slice(2));
