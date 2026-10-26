@@ -430,6 +430,8 @@
       "bash */review-harness/codex-round.sh *",
       "*/review-harness/codex-round.sh *",
       "node */codex-companion.mjs *",
+      "node \"*/codex-companion.mjs\" *",
+      "node \"*/codex-companion.mjs\"",
       "bash */codex-run.sh *",
       "*/codex-run.sh *",
       "python3 */relauncher.py *",

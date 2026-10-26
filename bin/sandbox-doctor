@@ -53,6 +53,26 @@ for pattern in ('git worktree *', '*/land-gate.sh *', '*/machine-state *', '*/re
 report(sb.get('filesystem', {}).get('allowGitConfig') is True, 'sandbox.filesystem.allowGitConfig is true',
        f'set it in {SRC}, then bootstrap')
 
+# The pattern's presence is not enough (2026-10-26): the Codex plugin calls its companion with the path in
+# quotes, `node "${CLAUDE_PLUGIN_ROOT}/scripts/codex-companion.mjs" task …`, which `node */codex-companion.mjs *`
+# never matched — every plugin call stayed sandboxed and died on EPERM under ~/.claude/plugins/data (measured:
+# quoted form EPERM, unquoted form ran). So take each invocation from the installed plugin's own files and
+# match it, expanded, against the live patterns. fnmatch on the raw string is the reading the probe confirmed.
+import fnmatch, glob, re
+roots = sorted(glob.glob(f'{HOME}/.claude/plugins/cache/openai-codex/codex/*/'))
+if roots:
+    root = roots[-1].rstrip('/')
+    forms = set()
+    for doc in glob.glob(f'{root}/agents/*.md') + glob.glob(f'{root}/commands/*.md'):
+        for m in re.finditer(r'node "\$\{CLAUDE_PLUGIN_ROOT\}/scripts/codex-companion\.mjs"[^`\n]*', open(doc).read()):
+            forms.add(m.group(0).replace('${CLAUDE_PLUGIN_ROOT}', root).replace('"$ARGUMENTS"', '"x"')
+                      .replace('$ARGUMENTS', 'x').replace('...', '--fresh x').rstrip(' .,`'))
+    unmatched = sorted(f for f in forms if not any(fnmatch.fnmatchcase(f, p) for p in excluded))
+    report(forms and not unmatched, f'every Codex plugin call runs outside the sandbox ({len(forms)} forms)',
+           f'no excludedCommands pattern matches: {unmatched[:2]} — add a pattern for that form in {SRC}, then bootstrap')
+else:
+    print('SKIP  Codex plugin calls — the openai-codex plugin is not installed')
+
 # Probes, run inside the sandbox exactly as a session's Bash would.
 inside_repo = subprocess.run(['git', 'rev-parse', '--git-dir'], capture_output=True, text=True)
 if inside_repo.returncode == 0:
