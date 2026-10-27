@@ -427,6 +427,7 @@
       "ps *",
       "pgrep *",
       "pkill *",
+      "kill *",
       "bash */review-harness/codex-round.sh *",
       "*/review-harness/codex-round.sh *",
       "node */codex-companion.mjs *",
